@@ -310,7 +310,7 @@ def run_epoch(session, m, data_interp, eval_op, trainValidTest, verbose=False):
     state2 = (state2_c, state2_h)  # the initial state of the second lstm
 
     # data_interp.newEpoch()
-    dataGen = data_interp.endoIterator(m.batch_size, m.num_steps, trainValidTest)  # A generator over the endomondo data
+    dataGen = data_interp.endoIteratorSupervised(m.batch_size, m.num_steps, trainValidTest, targetAtt)  # A generator over the endomondo data
     # global dataGenTest
     # dataGenTest = dataGen
     # global modelTest
@@ -385,7 +385,7 @@ def main():
     config = get_config()
     eval_config = get_config()
     eval_config.batch_size = 1
-    eval_config.num_steps = 50
+    eval_config.num_steps = 50 #This was "1" in the ptb model and maybe should be made to work at 1. I am guessing the problem lies in the endoIterator function.
     #config.dataDim = dataShape
     config.inputShape = inputShape
     config.targetShape = targetShape

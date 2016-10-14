@@ -90,7 +90,7 @@ class dataInterpreter(object):
     
     def batchIteratorSupervised(self, batch_size, trainValidTest, targetAtt):
         #Performs the same job as the batch iterator, but with one of the attributes separated as the supervision signal
-        inputAttributes = dataClasses=[x for x in self.attributes if x != targetAtt]
+        inputAttributes =[x for x in self.attributes if x != targetAtt]
         inputDataDim=self.getInputDim(targetAtt)
         targetDataDim=self.getTargetDim(targetAtt)
 
