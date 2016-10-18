@@ -385,7 +385,7 @@ def main():
     config = get_config()
     eval_config = get_config()
     eval_config.batch_size = 1
-    eval_config.num_steps = 50 #This was "1" in the ptb model and maybe should be made to work at 1. I am guessing the problem lies in the endoIterator function.
+    eval_config.num_steps = 1
     #config.dataDim = dataShape
     config.inputShape = inputShape
     config.targetShape = targetShape
