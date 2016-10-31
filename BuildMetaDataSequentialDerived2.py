@@ -575,3 +575,14 @@ class metaDataEndomondo(object):
         self.isNominal=isNominal
         self.isDerived=isDerived
         self.dataPointIndices=dataPointIndices
+        
+                
+def main():
+    endoRead=dataInterpreter(fn="../multimodalDBM/endomondoHR_proper.json")
+    endoRead.buildDataSchema(['altitude', 'gender', 'heart_rate', 'speed','userId'])
+    print("Done!!")
+
+
+if __name__ == "__main__":
+    main()
+    
