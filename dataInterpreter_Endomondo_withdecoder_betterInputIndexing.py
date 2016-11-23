@@ -23,7 +23,7 @@ class dataInterpreter(object):
         self.dataSchemaLoaded=False
         #self.currentDataPoint=None
         self.dataPointPosition=0
-        self.attIgnore=['id','url']#Attributes to ignore when building metadata
+        self.attIgnore=['id','url','speed']#Attributes to ignore when building metadata
         self.metaDataFn=fn[0:len(fn)-5]+"_metaData.p"
         self.allowMissingData=allowMissingData
         self.scaleVals=scaleVals
@@ -31,7 +31,8 @@ class dataInterpreter(object):
         if attributes is not None:
             self.buildDataSchema(attributes)
     
-    def buildDataSchema(self, attributes, trainValTestSplit=(.8,.1,.1)):
+    def buildDataSchema(self, attributes, targetAtt, trainValTestSplit=(.8,.1,.1)):
+        self.targetAtt=targetAtt
         self.buildMetaData()
         self.splitForValidation(trainValTestSplit)
         #self.newEpoch()#Reset all indices and counters
@@ -40,6 +41,16 @@ class dataInterpreter(object):
         for att in self.attributes:
             dataDimSum=dataDimSum+self.encodingLengths[att]
         self.dataDim=dataDimSum
+        
+        #Create a dictionary that takes an attribute and returns a beginning and end position of the attribute in the input sequence
+        self.inputAttributes =[x for x in self.attributes if x != targetAtt]
+        self.inputIndices={}
+        lastIndex=0
+        for att in self.inputAttributes:
+            nextIndex=lastIndex+self.encodingLengths[att]
+            self.inputIndices[att]=(lastIndex, nextIndex)
+            lastIndex=nextIndex
+            
         self.dataSchemaLoaded=True
     
     def createSequentialGenerator(self): #Define a new data generator
@@ -93,7 +104,7 @@ class dataInterpreter(object):
     
     def batchIteratorSupervised(self, batch_size, trainValidTest, targetAtt):
         #Performs the same job as the batch iterator, but with one of the attributes separated as the supervision signal
-        inputAttributes =[x for x in self.attributes if x != targetAtt]
+        inputAttributes = self.inputAttributes
         inputDataDim=self.getInputDim(targetAtt)
         targetDataDim=self.getTargetDim(targetAtt)
 
@@ -198,11 +209,13 @@ class dataInterpreter(object):
 
             yield [inputDataBatch, targetDataBatch]
             
-    def dataIteratorSupervised(self, trainValidTest, targetAtt):
+    def dataIteratorSupervised(self, trainValidTest):
+        targetAtt=self.targetAtt
         #Performs the same job as the batch iterator, but with one of the attributes separated as the supervision signal
-        inputAttributes =[x for x in self.attributes if x != targetAtt]
+        inputAttributes = self.inputAttributes
         inputDataDim=self.getInputDim(targetAtt)
         targetDataDim=self.getTargetDim(targetAtt)
+
 
         if trainValidTest == 'train':
             self.trainingOrder = self.randomizeDataOrder(self.trainingSet)
@@ -379,17 +392,17 @@ class dataInterpreter(object):
 
             yield dataBatch
 
-    def endoIteratorSupervised(self, batch_size, num_steps, trainValidTest, targetAtt):
+    def endoIteratorSupervised(self, batch_size, num_steps, trainValidTest):
             #Does the same thing as the endoIterator, except for a model with separate supervised targets (targets are not the next element in the sequence)
 
-            batchGen = self.dataIteratorSupervised(trainValidTest, targetAtt)
-            self.targetAtt = targetAtt
+            batchGen = self.dataIteratorSupervised(trainValidTest)
+
             data_len = self.numDataPoints
             batch_len = data_len // batch_size
             epoch_size = (batch_len - 1) // num_steps
 
-            inputDataDim = self.getInputDim(targetAtt)
-            targetDataDim = self.getTargetDim(targetAtt)
+            inputDataDim = self.getInputDim(self.targetAtt)
+            targetDataDim = self.getTargetDim(self.targetAtt)
 
             if epoch_size == 0:
                 raise ValueError("epoch_size == 0, decrease batch_size or num_steps")
@@ -480,14 +493,14 @@ class dataInterpreter(object):
     def dataDecoder(self, dataPoints):
         convertedData=[]
         for dp in dataPoints:
-            convertedData.append(self.dataDecoderDP(dp))
+            convertedData.append(self.dataDecoderDP(dp, returnKey))
         return convertedData
     
     def dataDecoderDP(self, dataPoint):
         #This function takes an encoded data point (a single time step) and decodes it into a readable set of variables 
         #for use in statistical processing and visualization
-        inputAttributes = [x for x in self.attributes if x != self.targetAtt]
-        #inputDataDim=self.getInputDim(inputAttributes)
+        inputAttributes = self.inputAttributes
+        inputDataDim=self.getInputDim(targetAtt)
         
         try:
             inverseEncoders=self.inverseOneHotEncoders
@@ -496,11 +509,9 @@ class dataInterpreter(object):
             inverseEncoders=self.inverseOneHotEncoders
         
         decodedDataPoint=[]
-        dataPointPosition=0
         for i, att in enumerate(inputAttributes):
-            attLength = self.encodingLengths[att]
-            currentAttData = dataPoint[dataPointPosition:dataPointPosition+attLength]
-            dataPointPosition = dataPointPosition + attLength
+            attIndices=self.inputIndices[att]
+            currentAttData = dataPoint[attIndices[0]:attIndices[1]]
             if self.isSequence[att]==False:
                 currentEncoder=inverseEncoders[att]
                 decodedDataPoint.append(currentEncoder[str([int(i) for i in list(currentAttData)])])
@@ -549,7 +560,7 @@ class dataInterpreter(object):
         else:
             raise(Exception("No such derived data attribute"))
             
-    def scaleData(self, data, att):
+    """def scaleData(self, data, att):
         #This function provides optional rescaling of the data for optimal neural network performance. 
         #It can either be run online or offline w/ results stored in a preprocessed data file (more effecient)
         if self.scaleVals:
@@ -564,6 +575,16 @@ class dataInterpreter(object):
                 return scaledData
             else:
                 return data
+        else:
+            return data"""
+        
+    def scaleData(self, data, att, zMultiple=2):
+        #This function scales the data based on precomputed means and standard deviations
+        #It does this by computing z-scores and multiplying them based on a scaling paramater
+        #It therefore produces zero-centered data, which is important for the drop-in procedure
+        if self.scaleVals:
+            zScore = (data-self.variableMeans[att])/self.variableStds[att]
+            return zScore * zMultiple
         else:
             return data
         
@@ -604,8 +625,8 @@ class dataInterpreter(object):
         return np.unique(np.array(class_labels))
     
     def writeSummaryFile(self):
-        metaDataForWriting=metaDataEndomondo(self.numDataPoints, self.encodingLengths, self.oneHotEncoders, 
-                                             self.isSequence, self.isNominal, self.isDerived, self.dataPointIndices)
+        metaDataForWriting=metaDataEndomondo(self.numDataPoints, self.encodingLengths, self.oneHotEncoders, self.isSequence, 
+                                             self.isNominal, self.isDerived, self.dataPointIndices, self.variableMeans, self.variableStds)
         with open(self.metaDataFn, "wb") as f:
             pickle.dump(metaDataForWriting, f)
 
@@ -629,6 +650,8 @@ class dataInterpreter(object):
         self.isNominal=metaData.isNominal
         self.isDerived=metaData.isDerived
         self.dataPointIndices=metaData.dataPointIndices
+        self.variableMeans = metaData.variableMeans
+        self.variableStds = metaData.variableStds
         print("Metadata loaded")
         
     def buildMetaData(self):
@@ -647,9 +670,14 @@ class dataInterpreter(object):
             self.isDerived={'altitude':False, 'gender':False, 'heart_rate':False, 'id':False, 'latitude':False, 'longitude':False,
                    'speed':False, 'sport':False, 'timestamp':False, 'url':False, 'userId':False, 'time_elapsed': True,
                             'distance':True, 'new_workout':True, 'derived_speed':True}#Handcoded
-            allDataClasses=['altitude', 'gender', 'heart_rate', 'id', 'latitude', 'longitude',
+            allAttributes=['altitude', 'gender', 'heart_rate', 'id', 'latitude', 'longitude',
                    'speed', 'sport', 'timestamp', 'url', 'userId', 'time_elapsed', 'distance', 'new_workout', 'derived_speed']
-            dataClasses=[x for x in allDataClasses if x not in self.attIgnore]#get rid of the attributes that we are ignoring
+            attributes=[x for x in allAttributes if x not in self.attIgnore]#get rid of the attributes that we are ignoring
+            
+            variableSums={'altitude':0, 'gender':0, 'heart_rate':0, 'id':0, 'latitude':0, 'longitude':0,
+                   'speed':0, 'sport':0, 'timestamp':0, 'url':0, 'userId':0, 'time_elapsed': 0,
+                            'distance':0, 'new_workout':0, 'derived_speed':0}
+            
             #self.newEpoch()#makes sure to reset things
             moreData=True
             classLabels={}
@@ -660,46 +688,55 @@ class dataInterpreter(object):
                 try:
                     currData=[self.getNextDataPointSequential()]
                     #dataClasses = self.getDataClasses(currData)#This could be removed to make it more effecient
-                    for datclass in dataClasses:
-                        if self.isDerived[datclass] != True:
-                            if self.isNominal[datclass]: #If it is nominal data
-                                if self.isSequence[datclass]:
+                    for att in attributes:
+                        if self.isDerived[att] != True:
+                            if self.isNominal[att]: #If it is nominal data
+                                if self.isSequence[att]:
                                     raise(NotImplementedError("Nominal data types for sequences have not yet been implemented"))
-                                dataClassLabels=self.getDataLabels(currData, datclass)
-                                if classLabels.get(datclass) is None: #If it is the first step
-                                    classLabels[datclass]=dataClassLabels
+                                dataClassLabels=self.getDataLabels(currData, att)
+                                if classLabels.get(att) is None: #If it is the first step
+                                    classLabels[att]=dataClassLabels
                                 else:
                                     #print(np.concatenate(dataClassLabels,classLabels[datclass]))
-                                    classLabels[datclass]=np.unique(np.concatenate([dataClassLabels,classLabels[datclass]]))
+                                    classLabels[att]=np.unique(np.concatenate([dataClassLabels, classLabels[att]]))
                             else:
-                                if self.isSequence[datclass]!=True:
+                                if self.isSequence[att]!=True:
                                     #If is it nominal and not a sequence
                                     raise(NotImplementedError("Non-nominal data types for non-sequences have not yet been implemented"))
+                                else:
+                                    #Add to the variable running sum
+                                    tempData = currData[0]
+                                    #print(tempData.keys)
+                                    variableSums[att] += sum(tempData[att])
+                        else:
+                            #Handle the derived variables
+                            currentDerivedData = self.deriveData(att, currData[0])
+                            variableSums[att] += sum(currentDerivedData)
+
                     numDataPoints=numDataPoints+1
                 except:
                     moreData=False
                     print("Stopped at " + str(numDataPoints) + " data points")
-                #if numDataPoints>10000:#For testing
-                #    moreData=False#For testing
             
             oneHotEncoders={}
             encodingLengths={}
             dataDim=0
-            for datclass in dataClasses:
-                if self.isSequence[datclass]==False:
-                    oneHotEncoders[datclass]=self.buildEncoder(classLabels[datclass])
-                    encodingLengths[datclass]=classLabels[datclass].size
+            for att in attributes:
+                if self.isSequence[att]==False:
+                    oneHotEncoders[att]=self.buildEncoder(classLabels[att])
+                    encodingLengths[att]=classLabels[att].size
                     #dataDim=dataDim+encodingLengths[datclass]
                 else:
-                    if self.isNominal[datclass]:
+                    if self.isNominal[att]:
                         raise(NotImplementedError("Nominal data types for sequences have not yet been implemented"))
                     else:
-                        encodingLengths[datclass]=1
+                        encodingLengths[att]=1
                         #dataDim=dataDim+1
             print("Getting data indices")
             dataPointIndices=jsonReader.getDataIndices(self.dataFileName)
             
             #Set all of the summary information to self properties
+            computeMeansStandardDeviations(self, variableSums, numDataPoints)
             self.numDataPoints=numDataPoints
             self.encodingLengths=encodingLengths#A dictionary that maps attributes to the lengths of their vector encoding schemes
             self.oneHotEncoders=oneHotEncoders#A dictionary of dictionaries where the outer dictionary maps attributes to encoding schemes and where each encoding scheme is a dictionary that maps attribute values to one hot encodings
@@ -711,6 +748,51 @@ class dataInterpreter(object):
             #Save that summary file so that it can be used next time
             self.writeSummaryFile()
         self.MetaDataLoaded=True 
+        
+    def computeMeansStandardDeviations(self, varSums, numDataPoints):
+        print("Computing variable means and standard deviations")
+        
+        numSequencePoints = numDataPoints*500
+        variableMeans = {}
+        for key in varSums:
+            variableMeans[key] = varSums[key]/numSequencePoints
+        
+        varResidualSums = {'altitude':0, 'gender':0, 'heart_rate':0, 'id':0, 'latitude':0, 'longitude':0,
+                   'speed':0, 'sport':0, 'timestamp':0, 'url':0, 'userId':0, 'time_elapsed': 0,
+                            'distance':0, 'new_workout':0, 'derived_speed':0}
+        
+        self.dataFile=open(self.dataFileName, 'r')
+        moreData=True
+        while moreData:
+                if numDataPoints%10000==0:
+                    print("Currently at data point " + str(numDataPoints))
+                try:
+                    currData=[self.getNextDataPointSequential()]
+                    #dataClasses = self.getDataClasses(currData)#This could be removed to make it more effecient
+                    for att in attributes:
+                        if self.isNominal[att] != True: #If it is nominal data
+                            if self.isSequence[att]!=True:
+                                #If is it nominal and not a sequence
+                                raise(NotImplementedError("Non-nominal data types for non-sequences have not yet been implemented"))
+                            else:
+                                if self.isDerived[att] == True: #Handle derived variables
+                                    dataPointArray = np.array(self.deriveData(att, currData[0]))
+                                else:
+                                    dataPointArray = np.array(self.getDataLabels(currData, att))
+                                #Add to the variable running sum of squared residuals
+                                varResidualSums[att] += np.square(dataPointArray-variableMeans[att])
+                            
+                except:
+                    moreData=False
+                    print("Stopped at " + str(numDataPoints) + " data points")
+        
+        variableStds = {}
+        for key in varResidualSums:
+            variableStds[key] = np.sqrt(varResidualSums[key]/numSequencePoints)
+            
+        self.variableMeans = variableMeans
+        self.variableStds = variableStds
+        
         
     def oneHot(self, dataPoint, att):
         #Takes the current data point and the attribute type and uses the data schema to provide the one-hot encoding for the variable
@@ -740,7 +822,8 @@ class dataInterpreter(object):
 class metaDataEndomondo(object):
     #For disk storage of metadata
     #Meant to be pickled and unpickled
-    def __init__(self, numDataPoints, encodingLengths, oneHotEncoders, isSequence, isNominal, isDerived, dataPointIndices):
+    def __init__(self, numDataPoints, encodingLengths, oneHotEncoders, isSequence, isNominal, isDerived, dataPointIndices,
+                 variableMeans, variableStds):
         self.numDataPoints=numDataPoints
         self.encodingLengths=encodingLengths
         self.oneHotEncoders=oneHotEncoders
@@ -749,4 +832,6 @@ class metaDataEndomondo(object):
         self.isNominal=isNominal
         self.isDerived=isDerived
         self.dataPointIndices=dataPointIndices
+        self.variableMeans = variableMeans
+        self.variableStds = variableStds
         
