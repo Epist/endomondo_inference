@@ -7,17 +7,17 @@ from tensorflow.python.framework import ops
 class inputManager(object):
     def __init__(self, inputIndicesDict, inputOrderNames, numInitialInputs=1):
         self.inputOrder = inputOrderNames
-        self.inputIndices = convertNamesToPositions(inputIndicesDict, inputOrderNames) # A list of tuples that contains the start and end indices of each input variable
+        self.inputIndices = self.convertNamesToPositions(inputIndicesDict, inputOrderNames) # A list of tuples that contains the start and end indices of each input variable
         #self.inputOrder = convertNamesToPositions(inputOrderNames) # A list where the 0th position contains the index of the first input to add, the 1st position contains the index of the second input to add, etc.
         self.inputState = np.zerosLike(self.inputOrder)#A numpy array of ones and zeros that keeps track of which inputs variables are active
         self.numActiveInputs = 0
-        self.mask = initialMask(self.inputIndices)#initialize the mask. This should be a tensor of the same shape as the input tensor x
+        self.mask = self.initialMask(self.inputIndices)#initialize the mask. This should be a tensor of the same shape as the input tensor x
         
         while numInitialInputs>0: #Add the initial inputs
-            addInput()
+            self.addInput()
             numInitialInputs -= 1
 
-    def dropin(x, name=None):
+    def dropin(self, x, name=None):
 
         """Masks a subset of a tensor based on a vector of positions and a vector that specified whether or not to mask.
         This is used to allow for a model to be trained progressively by adding input components progressively as the moidel 
@@ -64,7 +64,7 @@ class inputManager(object):
         self.inputState[inputToAdd]=1
         self.numActiveInputs = self.numActiveInputs+1"""
     
-    def addInput():
+    def addInput(self):
         self.inputState[self.numActiveInputs] = 1 #Update the input state
         self.numActiveInputs += 1 #Update the number of active inputs
                 
@@ -78,7 +78,7 @@ class inputManager(object):
                     self.mask[j]=0
                     
         
-    def convertNamesToPositions(inputIndicesDict, inputOrderNames):
+    def convertNamesToPositions(self, inputIndicesDict, inputOrderNames):
         #Converts the dictionary of attribrute indices to a list of attribute indices and puts them in order
         inputIndicesList = []
         for name in inputOrderNames:
@@ -87,7 +87,7 @@ class inputManager(object):
         return inputIndicesList
         
         
-    def initialMask(inputIndices):
+    def initialMask(self, inputIndices):
         #This function returns a mask tensor of the correct shape by examining the inputIndices and determining the length of the input vector
         
         maxIndex=0

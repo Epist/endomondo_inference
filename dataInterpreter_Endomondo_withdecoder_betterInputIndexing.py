@@ -493,14 +493,14 @@ class dataInterpreter(object):
     def dataDecoder(self, dataPoints):
         convertedData=[]
         for dp in dataPoints:
-            convertedData.append(self.dataDecoderDP(dp, returnKey))
+            convertedData.append(self.dataDecoderDP(dp))
         return convertedData
     
     def dataDecoderDP(self, dataPoint):
         #This function takes an encoded data point (a single time step) and decodes it into a readable set of variables 
         #for use in statistical processing and visualization
-        inputAttributes = self.inputAttributes
-        inputDataDim=self.getInputDim(targetAtt)
+        inputAttributes = [x for x in self.attributes if x != self.targetAtt]
+        #inputDataDim=self.getInputDim(inputAttributes)
         
         try:
             inverseEncoders=self.inverseOneHotEncoders
@@ -509,9 +509,11 @@ class dataInterpreter(object):
             inverseEncoders=self.inverseOneHotEncoders
         
         decodedDataPoint=[]
+        dataPointPosition=0
         for i, att in enumerate(inputAttributes):
-            attIndices=self.inputIndices[att]
-            currentAttData = dataPoint[attIndices[0]:attIndices[1]]
+            attLength = self.encodingLengths[att]
+            currentAttData = dataPoint[dataPointPosition:dataPointPosition+attLength]
+            dataPointPosition = dataPointPosition + attLength
             if self.isSequence[att]==False:
                 currentEncoder=inverseEncoders[att]
                 decodedDataPoint.append(currentEncoder[str([int(i) for i in list(currentAttData)])])
