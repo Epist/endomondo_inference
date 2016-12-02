@@ -1,16 +1,19 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.framework import ops
+
 
 #Might need to pass a session or add some tensorflow related imports
 
 class inputManager(object):
     def __init__(self, inputIndicesDict, inputOrderNames, numInitialInputs=1):
+        import tensorflow as tf
+        from tensorflow.python.framework import ops
         self.inputOrder = inputOrderNames
         self.inputIndices = self.convertNamesToPositions(inputIndicesDict, inputOrderNames) # A list of tuples that contains the start and end indices of each input variable
         #self.inputOrder = convertNamesToPositions(inputOrderNames) # A list where the 0th position contains the index of the first input to add, the 1st position contains the index of the second input to add, etc.
-        self.inputState = np.zerosLike(self.inputOrder)#A numpy array of ones and zeros that keeps track of which inputs variables are active
+        self.inputState = np.zeros_like(self.inputOrder)#A numpy array of ones and zeros that keeps track of which inputs variables are active
         self.numActiveInputs = 0
+        #with tf.Graph().as_default():
         self.mask = self.initialMask(self.inputIndices)#initialize the mask. This should be a tensor of the same shape as the input tensor x
         
         while numInitialInputs>0: #Add the initial inputs
@@ -48,16 +51,19 @@ class inputManager(object):
       """
         #variableSplit: A 1-D tensor of length (numInputVars) containing the indices (in the input vector) at which each input variable begins
 
-        with ops.name_scope(name, "dropin", [x]) as name:
-            x = ops.convert_to_tensor(x, name="x")
+        #with ops.name_scope(name, "dropin", [x]) as name:
+        #    x = ops.convert_to_tensor(x, name="x")
             
-
-        
+        #with tf.Graph().as_default():
+        #print(tf.shape(x))
+        ret=[]
+        for inpTens in x:
+            ret.append(tf.mul(inpTens, self.mask))
 
 
         #ret = math_ops.div(x, keep_prob) * binary_tensor
         #ret.set_shape(x.get_shape())
-        return tf.mul(x, self.mask) #Hopefully this is the elementwise multiplication operator. If not, we will see soon enough.
+        return ret
 
     """def addInput():
         inputToAdd = self.inputOrder(self.numActiveInputs)
@@ -65,17 +71,20 @@ class inputManager(object):
         self.numActiveInputs = self.numActiveInputs+1"""
     
     def addInput(self):
-        self.inputState[self.numActiveInputs] = 1 #Update the input state
-        self.numActiveInputs += 1 #Update the number of active inputs
-                
-        #Update the mask
-        for i, attIndices in enumerate(self.inputIndices):
-            if self.inputState[i]==1: #Set the elements of x corresponding to the added variable to 1
-                for j in range(attIndices[0],attIndices[1]):
-                    self.mask[j]=1
-            elif self.inputState[i]==0:
-                for j in range(attIndices[0],attIndices[1]):
-                    self.mask[j]=0
+        if len(self.inputOrder)>self.numActiveInputs:
+            self.inputState[self.numActiveInputs] = 1 #Update the input state
+            self.numActiveInputs += 1 #Update the number of active inputs
+
+            #Update the mask
+            for i, attIndices in enumerate(self.inputIndices):
+                if self.inputState[i]==1: #Set the elements of x corresponding to the added variable to 1
+                    for j in range(attIndices[0],attIndices[1]):
+                        self.mask[j]=1
+                elif self.inputState[i]==0:
+                    for j in range(attIndices[0],attIndices[1]):
+                        self.mask[j]=0
+        else:
+            print("All inputs have been added")
                     
         
     def convertNamesToPositions(self, inputIndicesDict, inputOrderNames):

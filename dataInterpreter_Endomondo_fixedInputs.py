@@ -31,12 +31,13 @@ class dataInterpreter(object):
         if attributes is not None:
             self.buildDataSchema(attributes)
     
-    def buildDataSchema(self, attributes, targetAtt, trainValTestSplit=(.8,.1,.1)):
+    def buildDataSchema(self, attributes, targetAtt, trainValTestSplit=(.8,.1,.1), zMultiple = 2):
         self.targetAtt=targetAtt
         self.buildMetaData()
         self.splitForValidation(trainValTestSplit)
         #self.newEpoch()#Reset all indices and counters
         self.attributes=attributes
+        self.zMultiple = zMultiple
         dataDimSum=0
         for att in self.attributes:
             dataDimSum=dataDimSum+self.encodingLengths[att]
@@ -175,7 +176,7 @@ class dataInterpreter(object):
                             else:
                                 attData = currentDataPoint  # Handles ordinal and numeric data
 
-                    scaledAttData = self.scaleData(attData, att)  # Rescales data if needed
+                    scaledAttData = self.scaleData(attData, att, self.zMultiple)  # Rescales data if needed
                     if self.isList(scaledAttData):
                         dataList.extend(scaledAttData)
                     else:
@@ -194,7 +195,7 @@ class dataInterpreter(object):
                     else:
                         attData = currentDataPoint  # Handles ordinal and numeric data
 
-                scaledTargetAttData = self.scaleData(attData, targetAtt)  # Rescales data if needed
+                scaledTargetAttData = self.scaleData(attData, targetAtt, self.zMultiple)  # Rescales data if needed
                 targetDataBatch[i,:] = scaledTargetAttData#Add the target data for the current data point to the full list
 
                 #Check length of input data vector
@@ -283,7 +284,7 @@ class dataInterpreter(object):
                         else:
                             attData = currentDataPoint  # Handles ordinal and numeric data
 
-                scaledAttData = self.scaleData(attData, att)  # Rescales data if needed
+                scaledAttData = self.scaleData(attData, att, self.zMultiple)  # Rescales data if needed
                 if self.isList(scaledAttData):
                     dataList.extend(scaledAttData)
                 else:
@@ -302,7 +303,7 @@ class dataInterpreter(object):
                 else:
                     attTarData = currentDataPoint  # Handles ordinal and numeric data
 
-            scaledTargetAttData = self.scaleData(attTarData, targetAtt)  # Rescales data if needed
+            scaledTargetAttData = self.scaleData(attTarData, targetAtt, self.zMultiple)  # Rescales data if needed
             targetData = [] #So that we can return it in the same list format as the inputs
             targetData.append(scaledTargetAttData)#Add the target data for the current data point to the full list
 
@@ -376,7 +377,7 @@ class dataInterpreter(object):
                         else:
                             attData = currentDataPoint #Handles ordinal and numeric data
 
-                    scaledAttData=self.scaleData(attData, att)#Rescales data if needed
+                    scaledAttData=self.scaleData(attData, att, self.zMultiple)#Rescales data if needed
                     if self.isList(scaledAttData):
                         dataList.extend(scaledAttData)
                     else:
@@ -411,18 +412,12 @@ class dataInterpreter(object):
             nextRow=[next(batchGen) for x in range(num_steps)]#Fill the first row (with both inputs and targets)
             #print(nextRowTargets)
             for i in range(epoch_size):
-                inputData = np.zeros([batch_size*num_steps, num_steps, inputDataDim])
-                targetData = np.zeros([batch_size*num_steps, num_steps, targetDataDim])
-                for j in range(batch_size):
-                    for k in range(num_steps):
-                        #print(" j: " + str(j) + " k: " + str(k))
-                        currentRow=nextRow
-
-                        inputData[((j*num_steps)+k), :, :]  = [currentRow[x][0] for x in range(num_steps)]
-                        targetData[((j*num_steps)+k), :, :] = [currentRow[x][1] for x in range(num_steps)]
-
-                        nextRow[0:(num_steps-1)] = currentRow[1:num_steps]
-                        nextRow[num_steps-1]=batchGen.next()
+                inputData = np.zeros([batch_size*num_steps, inputDataDim])
+                targetData = np.zeros([batch_size*num_steps, targetDataDim])
+                for j in range(batch_size*num_steps):
+                    currentTimePoint = next(batchGen)
+                    inputData[j,:] = currentTimePoint[0]
+                    targetData[j,:] = currentTimePoint[1]
 
                 x = inputData
                 y = targetData
@@ -585,8 +580,12 @@ class dataInterpreter(object):
         #It does this by computing z-scores and multiplying them based on a scaling paramater
         #It therefore produces zero-centered data, which is important for the drop-in procedure
         if self.scaleVals:
-            zScore = (data-self.variableMeans[att])/self.variableStds[att]
-            return zScore * zMultiple
+            if self.isSequence[att]:
+                diff = data-float(self.variableMeans[att])
+                zScore = diff/float(self.variableStds[att])
+                return zScore * zMultiple
+            else:
+                return data
         else:
             return data
         
@@ -700,7 +699,10 @@ class dataInterpreter(object):
                                     classLabels[att]=dataClassLabels
                                 else:
                                     #print(np.concatenate(dataClassLabels,classLabels[datclass]))
-                                    classLabels[att]=np.unique(np.concatenate([dataClassLabels, classLabels[att]]))
+                                    #This line is probably taking up all of the time...
+                                    if dataClassLabels not in classLabels[att]:
+                                        #print(dataClassLabels)
+                                        classLabels[att]=np.unique(np.concatenate([dataClassLabels, classLabels[att]]))
                             else:
                                 if self.isSequence[att]!=True:
                                     #If is it nominal and not a sequence
@@ -738,7 +740,7 @@ class dataInterpreter(object):
             dataPointIndices=jsonReader.getDataIndices(self.dataFileName)
             
             #Set all of the summary information to self properties
-            computeMeansStandardDeviations(self, variableSums, numDataPoints)
+            self.computeMeansStandardDeviations(variableSums, numDataPoints, attributes)
             self.numDataPoints=numDataPoints
             self.encodingLengths=encodingLengths#A dictionary that maps attributes to the lengths of their vector encoding schemes
             self.oneHotEncoders=oneHotEncoders#A dictionary of dictionaries where the outer dictionary maps attributes to encoding schemes and where each encoding scheme is a dictionary that maps attribute values to one hot encodings
@@ -751,7 +753,7 @@ class dataInterpreter(object):
             self.writeSummaryFile()
         self.MetaDataLoaded=True 
         
-    def computeMeansStandardDeviations(self, varSums, numDataPoints):
+    def computeMeansStandardDeviations(self, varSums, numDataPoints, attributes):
         print("Computing variable means and standard deviations")
         
         numSequencePoints = numDataPoints*500
@@ -763,30 +765,42 @@ class dataInterpreter(object):
                    'speed':0, 'sport':0, 'timestamp':0, 'url':0, 'userId':0, 'time_elapsed': 0,
                             'distance':0, 'new_workout':0, 'derived_speed':0}
         
-        self.dataFile=open(self.dataFileName, 'r')
+        self.createSequentialGenerator()
         moreData=True
+        countDP=0
         while moreData:
-                if numDataPoints%10000==0:
-                    print("Currently at data point " + str(numDataPoints))
-                try:
-                    currData=[self.getNextDataPointSequential()]
-                    #dataClasses = self.getDataClasses(currData)#This could be removed to make it more effecient
-                    for att in attributes:
-                        if self.isNominal[att] != True: #If it is nominal data
-                            if self.isSequence[att]!=True:
-                                #If is it nominal and not a sequence
-                                raise(NotImplementedError("Non-nominal data types for non-sequences have not yet been implemented"))
+            if countDP%10000==0:
+                print("Currently at data point " + str(countDP))
+            tryToggle = 0 #To get around suppressing any errors in all the try code, just try a single line and use this variable to trigger the rest
+            try:
+                currData=[self.getNextDataPointSequential()]
+                tryToggle = 1
+            except:
+                moreData=False
+                print("Stopped at " + str(countDP) + " data points")
+            #dataClasses = self.getDataClasses(currData)#This could be removed to make it more effecient
+            if tryToggle == 1:
+                for att in attributes:
+                    if self.isNominal[att] != True: #If it is nominal data
+                        if self.isSequence[att]!=True:
+                            #If is it nominal and not a sequence
+                            raise(NotImplementedError("Non-nominal data types for non-sequences have not yet been implemented"))
+                        else:
+                            if self.isDerived[att] == True: #Handle derived variables
+                                dataPointArray = np.array(self.deriveData(att, currData[0]))
                             else:
-                                if self.isDerived[att] == True: #Handle derived variables
-                                    dataPointArray = np.array(self.deriveData(att, currData[0]))
-                                else:
-                                    dataPointArray = np.array(self.getDataLabels(currData, att))
-                                #Add to the variable running sum of squared residuals
-                                varResidualSums[att] += np.square(dataPointArray-variableMeans[att])
-                            
-                except:
-                    moreData=False
-                    print("Stopped at " + str(numDataPoints) + " data points")
+                                tempData = currData[0]
+                                dataPointArray = np.array(tempData[att])
+                            #Add to the variable running sum of squared residuals
+                            diff=np.subtract(dataPointArray, variableMeans[att])#Line is split for debugging
+                            sq=np.square(diff)
+                            varResidualSums[att] += np.sum(sq)
+                            #varResidualSums[att] += np.sum(np.square(np.subtract(dataPointArray, variableMeans[att])))
+                countDP += 1
+
+            #except:
+            #    moreData=False
+            #    print("Stopped at " + str(countDP) + " data points")
         
         variableStds = {}
         for key in varResidualSums:

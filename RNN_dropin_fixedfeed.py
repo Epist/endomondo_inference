@@ -37,7 +37,8 @@ import pickle
 
 # from tensorflow.models.rnn.ptb import reader
 # from tensorflow.models.rnn import *
-from dataInterpreter_Endomondo_supervised_derivedData import dataInterpreter, metaDataEndomondo
+from dataInterpreter_Endomondo_fixedInputs import dataInterpreter, metaDataEndomondo
+from inputManager import inputManager
 
 # flags = tf.flags
 logging = tf.logging
@@ -50,24 +51,32 @@ logging = tf.logging
 # FLAGS = flags.FLAGS
 
 # model = "Larry"
-model = "small"
+model = "FixedDropin"
 data_path = "../multimodalDBM/endomondoHR_proper.json"
 summaries_dir = "logs"
 # endoFeatures = ["speed", "sport", "heart_rate", "gender", "altitude"]#The features we want the model to care about
-endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "userId"]
+endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
+inputOrderNames = ["new_workout", "derived_speed", "sport", "altitude", "gender", "distance", "time_elapsed"] #add "userId"
+numInitialInputs = 1
 #endoFeatures = ["sport", "heart_rate", "gender", "altitude"]
 trainValTestSplit = [0.8, 0.1, 0.1]
 targetAtt = "heart_rate"
-lossType = "RMSE" #MAE, RMSE
+lossType = "MAE" #MAE, RMSE
+savePredictions = True #Save prediction and/or input sequences for later viewing of the model-data relationship
 modelRunIdentifier=datetime.datetime.now().strftime("%I_%M%p_%B_%d_%Y")
+maxLoggingSteps = 1000
+interDropinInterval = 5
+zMultiple = 5
+dropInEnabled = True
 
 class EndoModel(object):
     """The Endomondo Contextual LSTM model."""
 
-    def __init__(self, is_training, config):
+    def __init__(self, is_training, config, dropinManager):
         self.is_training=is_training
         self.batch_size = batch_size = config.batch_size
         self.num_steps = num_steps = config.num_steps
+        self.num_layers = config.num_layers
         size = config.hidden_size
         # vocab_size = config.vocab_size
         #dataDim = config.dataDim
@@ -75,8 +84,8 @@ class EndoModel(object):
         targetShape = config.targetShape
         pos_weight = config.pos_weight  # This is a coefficient that weights the relative importance of positive prediction error and negative prediction error. The default is 1 (equal weight.)
 
-        self._input_data = tf.placeholder(tf.float32, [batch_size, num_steps, inputShape])
-        self._targets = tf.placeholder(tf.float32, [batch_size, num_steps, targetShape])
+        self._input_data = tf.placeholder(tf.float32, [batch_size*num_steps, inputShape])
+        self._targets = tf.placeholder(tf.float32, [batch_size*num_steps, targetShape])
 
         # Slightly better results can be obtained with forget gate biases
         # initialized to 1 but the hyperparameters of the model would need to be
@@ -104,15 +113,21 @@ class EndoModel(object):
         #
         # The alternative version of the code below is:
         #
-        inputs = [tf.squeeze(input_, [1])
-                  for input_ in tf.split(1, num_steps, inputs)]
+        #inputs = [tf.squeeze(input_, [1])
+        #          for input_ in tf.split(0, num_steps, inputs)]
+        inputs_to_save = inputs = [input_ for input_ in tf.split(0, num_steps, inputs)]
+        #print(tf.get_shape(inputs))
+        if dropInEnabled:
+            inputs = dropinManager.dropin(inputs)#Drop in component
+        #outputs, state = tf.nn.rnn(cell, inputs, initial_state=self._initial_state)
         outputs, state = tf.nn.rnn(cell, inputs, initial_state=self._initial_state)
 
         # Might need to change this stuff...
         output = tf.reshape(tf.concat(1, outputs), [-1, size])
-        softmax_w = tf.get_variable("softmax_w", [size, targetShape])
-        softmax_b = tf.get_variable("softmax_b", [targetShape])
-        logits = tf.matmul(output, softmax_w) + softmax_b  # Probably need to change this...
+        softmax_w = tf.Variable(tf.ones([size, targetShape]), trainable=False)
+        #softmax_b = tf.Variable(tf.ones([targetShape]), trainable=False)
+        #logits = tf.matmul(output, softmax_w) + softmax_b  # Probably need to change this...
+        logits = tf.matmul(output, softmax_w)
         
         variable_summaries(inputs, 'inputs')
         variable_summaries(logits, 'logits')
@@ -122,12 +137,17 @@ class EndoModel(object):
         #    [logits],
         #    tf.reshape(self._targets, [-1, batch_size * num_steps, targetShape]),
         #    pos_weight)
-        reshapedTargets=tf.reshape(self._targets, [-1, batch_size * num_steps, targetShape])
-        logTarDiff = tf.sub(reshapedTargets, [logits])
+        
+        #reshapedTargets=tf.reshape(self._targets, [-1, batch_size * num_steps, targetShape])
+        reshapedTargets=tf.reshape(self._targets, [-1, targetShape])
+        #print(tf.get_shape(reshapedTargets))
+        #print(tf.get_shape(logits))
+        logTarDiff = tf.sub(reshapedTargets, logits)
         if lossType=="RMSE":#Root mean squared error
-            loss = tf.sqrt(tf.reduce_mean(tf.square(logTarDiff)))
+            loss = tf.square(logTarDiff)
         elif lossType=="MAE":#Mean absolute error
-            loss = tf.reduce_mean(tf.abs(logTarDiff))
+            #loss = tf.reduce_mean(tf.abs(logTarDiff))
+            loss = tf.abs(logTarDiff)
         else:
             raise(Exception("Must specify a loss function"))
             
@@ -143,11 +163,17 @@ class EndoModel(object):
         #    [logits],
         #    [tf.reshape(self._targets, [-1])],
         #    [tf.ones([batch_size * num_steps])])
-        self.inputs = inputs
+        self.inputs = inputs_to_save
         self.logits = logits
         self.reshapedTargets = reshapedTargets
+        self.outputs=outputs
+        self.output=output
+        
         self.loss = loss
-        self._cost = cost = tf.reduce_sum(loss) / batch_size
+        if lossType=="RMSE":
+            self._cost = cost = tf.sqrt(tf.reduce_sum(loss)) / batch_size
+        elif lossType=="MAE":
+            self._cost = cost = tf.reduce_sum(loss) / batch_size
         self._final_state = state
         
         self.merged = tf.merge_all_summaries()
@@ -157,6 +183,7 @@ class EndoModel(object):
 
         self._lr = tf.Variable(0.0, trainable=False)
         tvars = tf.trainable_variables()
+        #print(tvars)
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars),
                                           config.max_grad_norm)
         optimizer = tf.train.GradientDescentOptimizer(self.lr)
@@ -221,7 +248,7 @@ class SmallConfig(object):
     learning_rate = 1.0
     max_grad_norm = 5
     num_layers = 2
-    num_steps = 25
+    num_steps = 20
     hidden_size = 200
     max_epoch = 4
     max_max_epoch = 13
@@ -302,17 +329,37 @@ class LarryConfig(object):
     max_grad_norm = 5
     num_layers = 2
     num_steps = 35
-    hidden_size = 400
-    max_epoch = 5
-    max_max_epoch = 20
-    keep_prob = 0.5
-    lr_decay = 0.8
+    hidden_size = 700
+    max_epoch = 12
+    max_max_epoch = 55
+    keep_prob = 0.4
+    lr_decay = 0.85
     batch_size = 20
     # vocab_size = 10000
     dataDim = 0
     inputShape = []
     targetShape = []
     pos_weight = 1
+    
+class fixedDropInConfig(object):
+    """Config for dropin with a fixed interval between adding variables"""
+    init_scale = 0.05
+    learning_rate = 1.0
+    max_grad_norm = 5
+    num_layers = 2
+    num_steps = 35
+    hidden_size = 650
+    max_epoch = interDropinInterval
+    max_max_epoch = ((len(inputOrderNames)-numInitialInputs)+2)*interDropinInterval
+    keep_prob = 0.5
+    lr_decay = 0.95
+    batch_size = 20
+    # vocab_size = 10000
+    dataDim = 0
+    inputShape = []
+    targetShape = []
+    pos_weight = 1
+    
     
 def variable_summaries(var, name):
   """Attach a lot of summaries to a Tensor."""
@@ -334,70 +381,112 @@ def run_epoch(session, m, data_interp, eval_op, trainValidTest, epochNum, verbos
     start_time = time.time()
     costs = 0.0
     iters = 0
+    
+    #if (epochNum%10==0) or (epochNum%10==1):
+    #    writeEpoch=1
+    #else:
+    #    writeEpoch=0
+    writeEpoch=1     
 
     # c and h are the two components of the lstm state tuple
     # See https://www.tensorflow.org/versions/r0.9/api_docs/python/rnn_cell.html#classes-storing-split-rnncell-state
     # Must handle the seperate lstm states seperately since the multiRNN class doesn't yet have a way to do this for tuple states...
+    
+    if m.num_layers==2:
+        state1_c = m.initial_state[0].c.eval()
+        state1_h = m.initial_state[0].h.eval()
+        state2_c = m.initial_state[1].c.eval()
+        state2_h = m.initial_state[1].h.eval()
+    elif m.num_layers==1:
+        state1_c = m.initial_state[0].c.eval()
+        state1_h = m.initial_state[0].h.eval()
 
-    state1_c = m.initial_state[0].c.eval()
-    state1_h = m.initial_state[1].h.eval()
-    state2_c = m.initial_state[0].c.eval()
-    state2_h = m.initial_state[1].h.eval()
-
-    state1 = (state1_c, state1_h)  # the initial state of the first lstm
-    state2 = (state2_c, state2_h)  # the initial state of the second lstm
+    #state1 = (state1_c, state1_h)  # the initial state of the first lstm
+    #state2 = (state2_c, state2_h)  # the initial state of the second lstm
 
     # data_interp.newEpoch()
-    dataGen = data_interp.endoIteratorSupervised(m.batch_size, m.num_steps, trainValidTest, targetAtt)  # A generator over the endomondo data
+    dataGen = data_interp.endoIteratorSupervised(m.batch_size, m.num_steps, trainValidTest)  # A generator over the endomondo data
     # global dataGenTest
     # dataGenTest = dataGen
     # global modelTest
     # modelTest=data_interp
-    if m.is_training is False:
-        targetSeq=[]
-        logitSeq=[]
-        inputSeq=[]
+    
+    targetSeq=[]
+    logitSeq=[]
+    inputSeq=[]
+    outputsSeq=[]
+    outputSeq=[]
     
     for step, (x, y) in enumerate(dataGen):
-
-        feed_dictionary = {m.input_data: x, m.targets: y,
-                           m.initial_state[0].c: state1[0],
-                           m.initial_state[0].h: state1[1],
-                           m.initial_state[1].c: state2[0],
-                           m.initial_state[1].h: state2[1],
-                           }
+        
+        if m.num_layers==2:
+            feed_dictionary = {m.input_data: x, m.targets: y,
+                               m.initial_state[0].c: state1_c,
+                               m.initial_state[0].h: state1_h,
+                               m.initial_state[1].c: state2_c,
+                               m.initial_state[1].h: state2_h,
+                               }
+        elif m.num_layers==1:
+            feed_dictionary = {m.input_data: x, m.targets: y,
+                               m.initial_state[0].c: state1_c,
+                               m.initial_state[0].h: state1_h,
+                               }
 
         # feed_dict.update( network.all_drop )
         
         #if True:
         if m.is_training:
-            loss, cost, state1_c, state1_h, state2_c, state2_h, summary, _ = session.run([m.loss, m.cost,
-                                                                                 m.final_state[0].c,
-                                                                                 m.final_state[0].h,
-                                                                                 m.final_state[1].c,
-                                                                                 m.final_state[1].h,
-                                                                                 m.merged,
-                                                                                 eval_op],
-                                                                                 feed_dict=feed_dictionary)
+            if m.num_layers==2:
+                loss, cost, state1_c, state1_h, state2_c, state2_h, summary, _ = session.run([m.loss, m.cost,
+                                                                                     m.final_state[0].c,
+                                                                                     m.final_state[0].h,
+                                                                                     m.final_state[1].c,
+                                                                                     m.final_state[1].h,
+                                                                                     m.merged,
+                                                                                     eval_op],
+                                                                                     feed_dict=feed_dictionary)
+            elif m.num_layers==1:
+                loss, cost, state1_c, state1_h, summary, _ = session.run([m.loss, m.cost,
+                                                                                     m.final_state[0].c,
+                                                                                     m.final_state[0].h,
+                                                                                     m.merged,
+                                                                                     eval_op],
+                                                                                     feed_dict=feed_dictionary)
         
             writer.add_summary(summary, step)
         else:
-            loss, cost, state1_c, state1_h, state2_c, state2_h, targets, logits, inputs, _ = session.run([m.loss, m.cost,
-                                                                                                     m.final_state[0].c,
-                                                                                                     m.final_state[0].h,
-                                                                                                     m.final_state[1].c,
-                                                                                                     m.final_state[1].h,
-                                                                                                     m.reshapedTargets,
-                                                                                                     m.logits,
-                                                                                                     m.inputs,
-                                                                                                     eval_op],
-                                                                                                     feed_dict=feed_dictionary)
-            targetSeq.extend(targets)
-            logitSeq.extend(logits)
-            inputSeq.extend(inputs)
+            if m.num_layers==2:
+                loss, cost, state1_c, state1_h, state2_c, state2_h, targets, logits, inputs, _ = session.run([m.loss, m.cost,
+                                                                                                         m.final_state[0].c,
+                                                                                                         m.final_state[0].h,
+                                                                                                         m.final_state[1].c,
+                                                                                                         m.final_state[1].h,
+                                                                                                         m.reshapedTargets,
+                                                                                                         m.logits,
+                                                                                                         m.inputs,
+                                                                                                         eval_op],
+                                                                                                         feed_dict=feed_dictionary)
+            elif m.num_layers==1:
+                loss, cost, state1_c, state1_h, targets, logits, inputs, _ = session.run([m.loss, m.cost,
+                                                                                                         m.final_state[0].c,
+                                                                                                         m.final_state[0].h,
+                                                                                                         m.reshapedTargets,
+                                                                                                         m.logits,
+                                                                                                         m.inputs,
+                                                                                                         eval_op],
+                                                                                                         feed_dict=feed_dictionary)
+                
+            if (step<maxLoggingSteps)&(savePredictions is True)&(writeEpoch==1):
+                targetSeq.extend(targets)
+                logitSeq.extend(logits)
+                #print(inputs[0])
+                inputSeq.extend(data_interp.dataDecoder(inputs[0]))
+                #inputSeq.extend(inputs)
+                #outputsSeq.extend(outputs)
+                #outputSeq.extend(output)
 
-        state1 = (state1_c, state1_h)
-        state2 = (state2_c, state2_h)
+        #state1 = (state1_c, state1_h)
+        #state2 = (state2_c, state2_h)
         
         
 
@@ -407,30 +496,33 @@ def run_epoch(session, m, data_interp, eval_op, trainValidTest, epochNum, verbos
         iters += m.num_steps
 
         if verbose and step % (epoch_size // 10) == 10:
+            #print("Step: " + str(step))
             # print(np.log(-costs//iters))
-            print("%.3f %s: %.4f speed: %.0f dpps" %
-                  (step * 1.0 / epoch_size, lossType, np.exp(costs / iters),
+            print("%.3f %s: %.6f speed: %.0f dpps" %
+                  (step * 1.0 / epoch_size, lossType, (costs / iters),
                    iters * m.batch_size / (time.time() - start_time)))
     
-    if m.is_training is False:
+    if (m.is_training is False) & (savePredictions is True) & (writeEpoch==1):
         print("Saving data to file")
-        saveData(targetSeq, logitSeq, inputSeq, epochNum)
+        saveData(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum)
     
     # print(costs)
     # print(iters)
-    return np.exp(costs / iters)
+    return (costs / iters)
 
-def saveData(targetSeq, logitSeq, inputSeq, epochNum):
+def saveData(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum):
     fileName= "logs/fullData/" + modelRunIdentifier + "_epoch_" + str(epochNum+1)
-    dataContents = dataEpoch(targetSeq, logitSeq, inputSeq, epochNum)
+    dataContents = dataEpoch(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum)
     with open(fileName, "wb") as f:
             pickle.dump(dataContents, f)
             
 class dataEpoch(object):
-    def __init__(self, targetSeq, logitSeq, inputSeq, epochNum):
-        self.inputSeq = inputSeq
+    def __init__(self, targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum):
+        #self.inputSeq = inputSeq
         self.targetSeq = targetSeq
         self.logitSeq = logitSeq
+        #self.outputsSeq = outputsSeq
+        #self.outputSeq = outputSeq
         self.epochNum = epochNum
         self.endoFeatures = endoFeatures
         self.targetAtt = targetAtt
@@ -438,6 +530,7 @@ class dataEpoch(object):
         self.lossType = lossType
         self.trainValTestSplit = trainValTestSplit
         self.modelRunIdentifier = modelRunIdentifier
+        self.zMultiple = zMultiple
 
 def get_config():
     if model == "small":
@@ -452,6 +545,8 @@ def get_config():
         return LarryConfig()
     elif model == "really small":
         return ReallySmallConfig()
+    elif model == "FixedDropin":
+        return fixedDropInConfig()
     else:
         raise ValueError("Invalid model: %s", model)
 
@@ -462,8 +557,10 @@ def main():
 
     # raw_data = reader.ptb_raw_data(data_path)
     # train_data, valid_data, test_data, _ = raw_data
-    endo_reader = dataInterpreter(fn=data_path, scaleVals=False)
-    endo_reader.buildDataSchema(endoFeatures, trainValTestSplit)
+    endo_reader = dataInterpreter(fn=data_path, scaleVals=True)
+    endo_reader.buildDataSchema(endoFeatures, targetAtt, trainValTestSplit, zMultiple)
+    
+    inputIndicesDict=endo_reader.inputIndices
 
     inputShape = endo_reader.getInputDim(targetAtt)
     targetShape = endo_reader.getTargetDim(targetAtt)
@@ -480,33 +577,43 @@ def main():
     eval_config.targetShape = targetShape
 
     with tf.Graph().as_default(), tf.Session() as session:
+        dropinManager = inputManager(inputIndicesDict, inputOrderNames, numInitialInputs)
+
         initializer = tf.random_uniform_initializer(-config.init_scale,
                                                     config.init_scale)
         with tf.variable_scope("model", reuse=None, initializer=initializer):
-            m = EndoModel(is_training=True, config=config)
+            m = EndoModel(is_training=True, config=config, dropinManager=dropinManager)
         with tf.variable_scope("model", reuse=True, initializer=initializer):
-            mvalid = EndoModel(is_training=False, config=config)
-            mtest = EndoModel(is_training=False, config=eval_config)
+            mvalid = EndoModel(is_training=False, config=config, dropinManager=dropinManager)
+            mtest = EndoModel(is_training=False, config=eval_config, dropinManager=dropinManager)
             
         train_writer = tf.train.SummaryWriter(summaries_dir + '/train', session.graph)
         test_writer = tf.train.SummaryWriter(summaries_dir + '/test')
 
         tf.initialize_all_variables().run()
 
+        print("Starting with " + str(dropinManager.numActiveInputs) + " inputs")
         for i in range(config.max_max_epoch):
-            epochNum=i
+            if dropInEnabled:
+                if i%interDropinInterval==0:
+                    #Simple drop in condition
+                    print("Adding input number " + str(dropinManager.numActiveInputs+1))
+                    dropinManager.addInput()
+            epochNum=i+1
             lr_decay = config.lr_decay ** max(i - config.max_epoch, 0.0)
             m.assign_lr(session, config.learning_rate * lr_decay)
 
-            print("Epoch: %d Learning rate: %.4f" % (i + 1, session.run(m.lr)))
+            print("Epoch: %d Learning rate: %.6f" % (i + 1, session.run(m.lr)))
             train_perplexity = run_epoch(session, m, endo_reader, m.train_op, 'train', epochNum,
                                          verbose=True, writer=train_writer)
-            print("Epoch: %d Train %s: %.4f" % (i + 1, lossType, train_perplexity))
-            valid_perplexity = run_epoch(session, mvalid, endo_reader, tf.no_op(), 'valid', epochNum, writer=test_writer)
-            print("Epoch: %d Valid %s: %.4f" % (i + 1, lossType, valid_perplexity))
+            print("Epoch: %d Train %s: %.6f" % (i + 1, lossType, train_perplexity))
+            valid_perplexity = run_epoch(session, mvalid, endo_reader, tf.no_op(), 'valid', epochNum, verbose=True, writer=test_writer)
+            print("Epoch: %d Valid %s: %.6f" % (i + 1, lossType, valid_perplexity))
 
-        test_perplexity = run_epoch(session, mtest, endo_reader, tf.no_op(), 'test', epochNum, writer=test_writer)
+        test_perplexity = run_epoch(session, mtest, endo_reader, tf.no_op(), 'test', epochNum+1, writer=test_writer)
         print("Test %s: %.4f" % (lossType, test_perplexity))
 
 if __name__ == "__main__":
     main()
+
+
