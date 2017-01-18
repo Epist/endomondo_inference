@@ -53,7 +53,7 @@ def getDataPoint(index, dataFile):
 
 def fileIterator(dataFile, readSize):
     eof=False
-    while eof==False:
+    while eof is False:
         try:
             dataBlock=dataFile.read(readSize)
             for dp in dataBlock:
