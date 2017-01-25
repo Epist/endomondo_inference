@@ -83,8 +83,10 @@ class inputManager(object):
                 elif self.inputState[i]==0:
                     for j in range(attIndices[0],attIndices[1]):
                         self.mask[j]=0
+            return self.inputOrder[self.numActiveInputs-1]#Return name of added input
         else:
             print("All inputs have been added")
+            return ""
                     
         
     def convertNamesToPositions(self, inputIndicesDict, inputOrderNames):
