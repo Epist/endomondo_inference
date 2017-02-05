@@ -71,6 +71,8 @@ interDropinInterval = 5
 zMultiple = 5
 global dropInEnabled
 dropInEnabled = False
+global fnEnd
+fnEnd = ''
 
 global inputOrderNames
 inputOrderNames = [x for x in endoFeatures if x!=targetAtt]
@@ -487,7 +489,9 @@ def run_epoch(session, m, data_interp, eval_op, trainValidTest, epochNum, verbos
                 targetSeq.extend(targets)
                 logitSeq.extend(logits)
                 #print(inputs[0])
-                inputSeq.extend(data_interp.dataDecoder(inputs[0]))
+                for inputStep in inputs:
+                    inputSeq.extend(data_interp.dataDecoder(inputStep))
+                #inputSeq.extend(data_interp.dataDecoder(inputs[0]))
                 #inputSeq.extend(inputs)
                 #outputsSeq.extend(outputs)
                 #outputSeq.extend(output)
@@ -518,8 +522,9 @@ def run_epoch(session, m, data_interp, eval_op, trainValidTest, epochNum, verbos
     return (costs / iters)
 
 def saveData(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum):
-    fileName= "logs/fullData/" + modelRunIdentifier + "_epoch_" + str(epochNum+1)
-    dataContents = dataEpoch(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum)
+    global fnEnd
+    fileName= "logs/fullData/" + modelRunIdentifier + "_epoch_" + str(epochNum+1) + fnEnd
+    dataContents = dataEpoch(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum, )
     with open(fileName, "wb") as f:
             pickle.dump(dataContents, f)
             
@@ -530,8 +535,13 @@ class dataEpoch(object):
         self.logitSeq = logitSeq
         #self.outputsSeq = outputsSeq
         #self.outputSeq = outputSeq
+        global endoFeatures
+        global inputOrderNames
+        global model
+        global lossType
         self.epochNum = epochNum
         self.endoFeatures = endoFeatures
+        self.inputOrderNames = inputOrderNames
         self.targetAtt = targetAtt
         self.modelType = model
         self.lossType = lossType
@@ -569,6 +579,7 @@ def parse_args(argv):
     parser.add_argument('-di', dest='drop_in', action='store_true', default=False, help='Use dropin')
     parser.add_argument('-em', dest='lossType', action='store', help='Specify the error metric')
     parser.add_argument('-a', dest='attributes', action='store', nargs='+', help='Specify the attributes')
+    parser.add_argument('-fn', dest='fileNameEnding', action='store', help='Append an identifying string to the end of output files')
     
     
     args = parser.parse_args()
@@ -599,8 +610,10 @@ def parse_args(argv):
         global inputOrderNames
         inputOrderNames = [x for x in endoFeatures if x!=targetAtt]
         print("Added attributes from command line: " + str(endoFeatures))
-    #except:
-    #    pass
+    
+    if args.fileNameEnding is not None:
+        global fnEnd
+        fnEnd = args.fileNameEnding
         
 
 def main(argv):
