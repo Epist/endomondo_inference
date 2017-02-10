@@ -30,6 +30,8 @@ class dataInterpreter(object):
         #self.valTestSplit=(.1,.1)
         self.excisedFN = excisedFN
         self.trimmed_workout_length = trimmed_workout_length
+        self.m_smooth_window = 5
+        self.perform_target_smoothing = True
         if attributes is not None:
             self.buildDataSchema(attributes)
     
@@ -139,7 +141,8 @@ class dataInterpreter(object):
         #currentDataPointLength = self.getDataPointLength(currentDataPoint)
         currentDataPointLength = self.trimmed_workout_length
         moreData = True
-        currentDerivedData={}
+        currentDerivedData = {}
+        smoothedData = {}
         while moreData:
             # Need code for getting the current data point and iterating through it until the end of it...
             # if end of data point:
@@ -150,23 +153,22 @@ class dataInterpreter(object):
                     currentDataPoint = dataGen.next()
                 except:  # If there is no more data, return what you have
                     moreData = False
-                    yield [inputData, targetData]  # May need to pad this??
+                    #yield [inputData, targetData]  # May need to pad this??
                 #currentDataPointLength = self.getDataPointLength(currentDataPoint)
                 currentDataPointLength = self.trimmed_workout_length
                 currentDerivedData = {} #Reset the derived data dictionary
+                smoothedData = {}
                 dataPointPosition = 0
             for j, att in enumerate(inputAttributes):
                 if self.isDerived[att]:
                     #handle the derived variables
                     if att in currentDerivedData.keys():
                         #Use the data from the current data point position
-                        attDataPoint=currentDerivedData[att]
-                        attData = attDataPoint[dataPointPosition]
+                        attData = currentDerivedData[att][dataPointPosition]
                     else:
                         #Generate the data and then use the data from the current data point position which should be 0
                         currentDerivedData[att] = self.deriveData(att, currentDataPoint)
-                        attDataPoint=currentDerivedData[att]
-                        attData = attDataPoint[dataPointPosition]
+                        attData = currentDerivedData[att][dataPointPosition]
                 else:
                     if self.isSequence[att]:  # Need to limit the sequence to the end of the batch...
                         # Put the sequence attributes in their proper positions in the tensor array
@@ -178,7 +180,7 @@ class dataInterpreter(object):
                         if self.isNominal[att]:  # Checks whether the data is nominal
                             attData = self.oneHot(currentDataPoint, att)  # returns a list
                         else:
-                            attData = currentDataPoint  # Handles ordinal and numeric data
+                            attData = currentDataPoint[att]  # Handles ordinal and numeric data
 
                 scaledAttData = self.scaleData(attData, att, self.zMultiple)  # Rescales data if needed
                 if self.isList(scaledAttData):
@@ -192,22 +194,32 @@ class dataInterpreter(object):
                 if self.isDerived[targetAtt]:
                     if targetAtt in currentDerivedData.keys():
                         #Use the data from the current data point position
-                        attDataPoint=currentDerivedData[targetAtt]
-                        attTarData = attDataPoint[dataPointPosition]
+                        attTarData = currentDerivedData[targetAtt][dataPointPosition]
                     else:
                         #Generate the data and then use the data from the current data point position which should be 0
-                        currentDerivedData[targetAtt] = self.deriveData(targetAtt, currentDataPoint)
-                        attDataPoint=currentDerivedData[targetAtt]
-                        attTarData = attDataPoint[dataPointPosition]
+                        temp_derived_tar_data = self.deriveData(targetAtt, currentDataPoint)
+                        if self.perform_target_smoothing:
+                            smoothed_derived_tar_data = self.median_smoothing(temp_derived_tar_data, self.m_smooth_window)
+                            currentDerivedData[targetAtt] = smoothed_derived_tar_data
+                        else:
+                            currentDerivedData[targetAtt] = temp_derived_tar_data
+                        attTarData = currentDerivedData[targetAtt][dataPointPosition]
                 else:
-                    attTarData = currentDataPoint[targetAtt][dataPointPosition]  # Get the next entry in the attribute sequence for the current data point
+                    if self.perform_target_smoothing:
+                        if targetAtt in smoothedData.keys():
+                            attTarData = float(smoothedData[targetAtt][dataPointPosition])
+                        else:
+                            smoothedData[targetAtt] = self.median_smoothing(currentDataPoint[targetAtt], self.m_smooth_window)
+                            attTarData = float(smoothedData[targetAtt][dataPointPosition])
+                    else:
+                        attTarData = float(currentDataPoint[targetAtt][dataPointPosition])  # Get the next entry in the attribute sequence for the current data point
             else:
                 # Put the context attributes in their proper positions in the tensor array
                 # These are a one-hot encoding schemes except in the case of "age" and the like
                 if self.isNominal[targetAtt]:  # Checks whether the data is nominal
                     attTarData = self.oneHot(currentDataPoint, targetAtt)  # returns a list
                 else:
-                    attTarData = currentDataPoint  # Handles ordinal and numeric data
+                    attTarData = currentDataPoint[targetAtt]  # Handles ordinal and numeric data
 
             scaledTargetAttData = self.scaleData(attTarData, targetAtt, self.zMultiple)  # Rescales data if needed
             targetData = [] #So that we can return it in the same list format as the inputs
@@ -221,9 +233,9 @@ class dataInterpreter(object):
                 print("Data schema length: " + str(len(inputDataDim)))
                 raise (ValueError("Data is not formatted according to the schema"))
 
-            dataPointPosition = dataPointPosition + 1
-
-            yield [inputData, targetData]
+            dataPointPosition += 1
+            if moreData:
+                yield [inputData, targetData]
 
 
     def endoIteratorSupervised(self, batch_size, num_steps, trainValidTest):
@@ -373,6 +385,22 @@ class dataInterpreter(object):
                 return data
         else:
             return data
+
+    def median_smoothing(self, seq, context_size):
+        seq_len = len(seq)
+
+        if context_size%2==0:
+            raise(exception("Context size must be odd for median smoothing"))
+
+        smoothed_seq = []
+        for i in range(seq_len):
+            cont_diff = (context_size-1)/2
+            context_min = int(max(0, i-cont_diff))
+            context_max = int(min(seq_len, i+cont_diff))
+            median_val = np.median(seq[context_min:context_max])
+            smoothed_seq.append(median_val)
+
+        return smoothed_seq
         
     def __convert(self, unicData): #Converts the unicode text in a dictionary to ascii
         #Shamelessly lifted from http://stackoverflow.com/questions/13101653/python-convert-complex-dictionary-of-strings-from-unicode-to-ascii
