@@ -35,7 +35,7 @@ import sys, argparse
 # from tensorflow.models.rnn.ptb import reader
 # from tensorflow.models.rnn import *
 #from dataInterpreter_Endomondo_fixedInputs import dataInterpreter, metaDataEndomondo
-from data_interpreter_with_excision import dataInterpreter, metaDataEndomondo
+from data_interpreter_cleaned import dataInterpreter, metaDataEndomondo
 from inputManager import inputManager
 
 # flags = tf.flags
@@ -61,12 +61,13 @@ endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "di
 numInitialInputs = 1
 #endoFeatures = ["sport", "heart_rate", "gender", "altitude"]
 trainValTestSplit = [0.8, 0.1, 0.1]
+global targetAtt
 targetAtt = "heart_rate"
 global lossType
 lossType = "RMSE" #MAE, RMSE
 savePredictions = True #Save prediction and/or input sequences for later viewing of the model-data relationship
 modelRunIdentifier=datetime.datetime.now().strftime("%I_%M%p_%B_%d_%Y")
-maxLoggingSteps = 1000
+maxLoggingSteps = 10000
 interDropinInterval = 5
 zMultiple = 5
 global dropInEnabled
@@ -77,6 +78,9 @@ fnEnd = ''
 global inputOrderNames
 inputOrderNames = [x for x in endoFeatures if x!=targetAtt]
 #print(inputOrderNames)
+
+global trimmed_workout_length
+trimmed_workout_length = 450
 
 class EndoModel(object):
     """The Endomondo Contextual LSTM model."""
@@ -126,6 +130,7 @@ class EndoModel(object):
         #          for input_ in tf.split(0, num_steps, inputs)]
         inputs_to_save = inputs = [input_ for input_ in tf.split(0, num_steps, inputs)]
         #print(tf.get_shape(inputs))
+        global dropInEnabled
         if dropInEnabled:
             inputs = dropinManager.dropin(inputs)#Drop in component
         #outputs, state = tf.nn.rnn(cell, inputs, initial_state=self._initial_state)
@@ -180,9 +185,9 @@ class EndoModel(object):
         
         self.loss = loss
         if lossType=="RMSE":
-            self._cost = cost = tf.sqrt(tf.reduce_sum(loss)) / batch_size
+            self._cost = cost = tf.sqrt(tf.reduce_sum(loss)) / float(batch_size)
         elif lossType=="MAE":
-            self._cost = cost = tf.reduce_sum(loss) / batch_size
+            self._cost = cost = tf.reduce_sum(loss) / float(batch_size)
         self._final_state = state
         
         self.merged = tf.merge_all_summaries()
@@ -196,6 +201,7 @@ class EndoModel(object):
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars),
                                           config.max_grad_norm)
         optimizer = tf.train.GradientDescentOptimizer(self.lr)
+        #optimizer = tf.train.AdamOptimizer(self.lr)
         self._train_op = optimizer.apply_gradients(zip(grads, tvars))
         
 
@@ -523,8 +529,8 @@ def run_epoch(session, m, data_interp, eval_op, trainValidTest, epochNum, verbos
 
 def saveData(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum):
     global fnEnd
-    fileName= "logs/fullData/" + modelRunIdentifier + "_epoch_" + str(epochNum+1) + fnEnd
-    dataContents = dataEpoch(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum, )
+    fileName= "logs/fullData/" + modelRunIdentifier + "_epoch_" + str(epochNum) + "_" + str(trimmed_workout_length)+ "_"+fnEnd
+    dataContents = dataEpoch(targetSeq, logitSeq, inputSeq, outputsSeq, outputSeq, epochNum)
     with open(fileName, "wb") as f:
             pickle.dump(dataContents, f)
             
@@ -539,6 +545,8 @@ class dataEpoch(object):
         global inputOrderNames
         global model
         global lossType
+        global targetAtt
+        global trimmed_workout_length
         self.epochNum = epochNum
         self.endoFeatures = endoFeatures
         self.inputOrderNames = inputOrderNames
@@ -548,6 +556,7 @@ class dataEpoch(object):
         self.trainValTestSplit = trainValTestSplit
         self.modelRunIdentifier = modelRunIdentifier
         self.zMultiple = zMultiple
+        self.trimmed_workout_length = trimmed_workout_length
 
 def get_config():
     if model == "small":
@@ -580,6 +589,7 @@ def parse_args(argv):
     parser.add_argument('-em', dest='lossType', action='store', help='Specify the error metric')
     parser.add_argument('-a', dest='attributes', action='store', nargs='+', help='Specify the attributes')
     parser.add_argument('-fn', dest='fileNameEnding', action='store', help='Append an identifying string to the end of output files')
+    parser.add_argument('-t', dest='target_att', action='store', help='Specify the target attribute')
     
     
     args = parser.parse_args()
@@ -604,6 +614,12 @@ def parse_args(argv):
     #    pass
     
     #try:
+    
+    global targetAtt
+    if args.target_att is not None:
+        targetAtt = args.target_att
+        print("Added target from command line: " + str(args.target_att))
+    
     if args.attributes is not None:
         global endoFeatures
         endoFeatures = args.attributes
@@ -624,6 +640,12 @@ def main(argv):
     # raw_data = reader.ptb_raw_data(data_path)
     # train_data, valid_data, test_data, _ = raw_data
     endo_reader = dataInterpreter(fn=data_path, scaleVals=True)
+    global targetAtt
+    global inputOrderNames
+    global model
+    global lossType
+    global endoFeatures
+    global dropInEnabled
     endo_reader.buildDataSchema(endoFeatures, targetAtt, trainValTestSplit, zMultiple)
     
     inputIndicesDict=endo_reader.inputIndices
@@ -634,7 +656,7 @@ def main(argv):
     config = get_config()
     eval_config = get_config()
     eval_config.batch_size = 1
-    eval_config.num_steps = 50 #Was originally set to 1
+    eval_config.num_steps = 1 #Was originally set to 1
     #config.dataDim = dataShape
     config.inputShape = inputShape
     config.targetShape = targetShape
@@ -681,7 +703,7 @@ def main(argv):
             print("Epoch: %d Valid %s: %.6f" % (i + 1, lossType, valid_perplexity))
 
         test_perplexity = run_epoch(session, mtest, endo_reader, tf.no_op(), 'test', epochNum+1, writer=test_writer)
-        print("Test %s: %.4f" % (lossType, test_perplexity))
+        print("Test %s: %.6f" % (lossType, test_perplexity))
 
 if __name__ == "__main__":
     main(sys.argv)
