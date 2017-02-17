@@ -5,6 +5,7 @@ import pickle
 import os
 import jsonReader
 from haversine import haversine
+from math import floor
 
 #Need to:
         #0. Scan the file when producing metadata and create a list of data point indices
@@ -38,6 +39,7 @@ class dataInterpreter(object):
     def buildDataSchema(self, attributes, targetAtt, trainValTestSplit=(.8,.1,.1), zMultiple = 2):
         self.targetAtt=targetAtt
         self.buildMetaData()
+        self.trainValTestSplit = trainValTestSplit
         self.splitForValidation(trainValTestSplit)
         #self.newEpoch()#Reset all indices and counters
         self.attributes=attributes
@@ -114,7 +116,6 @@ class dataInterpreter(object):
         inputDataDim=self.getInputDim(targetAtt)
         targetDataDim=self.getTargetDim(targetAtt)
 
-
         if trainValidTest == 'train':
             self.trainingOrder = self.randomizeDataOrder(self.trainingSet)
             dataGen = self.dataGenerator(self.trainingOrder)
@@ -134,107 +135,85 @@ class dataInterpreter(object):
         # inputDataDim is the total concatenated length of the data at each time point (for all input attributes)
         #targetData = np.zeros((batch_size, targetDataDim))
 
-
-        # if currentDataPoint is None: #If starting an epoch, grab the first data point
-        currentDataPoint = dataGen.next()
-        dataPointPosition = 0
-        #currentDataPointLength = self.getDataPointLength(currentDataPoint)
-        currentDataPointLength = self.trimmed_workout_length
-        moreData = True
-        currentDerivedData = {}
-        smoothedData = {}
-        while moreData:
-            # Need code for getting the current data point and iterating through it until the end of it...
-            # if end of data point:
-            # currentPoint = next data point
-            dataList = []  # A mutable data structure to allow us to construct the data instance...
-            if dataPointPosition == currentDataPointLength:  # Check to see if new data point is needed
-                try:
-                    currentDataPoint = dataGen.next()
-                except:  # If there is no more data, return what you have
-                    moreData = False
-                    #yield [inputData, targetData]  # May need to pad this??
-                #currentDataPointLength = self.getDataPointLength(currentDataPoint)
-                currentDataPointLength = self.trimmed_workout_length
-                currentDerivedData = {} #Reset the derived data dictionary
-                smoothedData = {}
-                dataPointPosition = 0
-            for j, att in enumerate(inputAttributes):
-                if self.isDerived[att]:
-                    #handle the derived variables
-                    if att in currentDerivedData.keys():
-                        #Use the data from the current data point position
-                        attData = currentDerivedData[att][dataPointPosition]
-                    else:
-                        #Generate the data and then use the data from the current data point position which should be 0
-                        currentDerivedData[att] = self.deriveData(att, currentDataPoint)
-                        attData = currentDerivedData[att][dataPointPosition]
-                else:
-                    if self.isSequence[att]:  # Need to limit the sequence to the end of the batch...
-                        # Put the sequence attributes in their proper positions in the tensor array
-                        # These are numeric encoding schemes.
-                        attData = float(currentDataPoint[att][dataPointPosition])  # Get the next entry in the attribute sequence for the current data point
-                    else:
-                        # Put the context attributes in their proper positions in the tensor array
-                        # These are a one-hot encoding schemes except in the case of "age" and the like
-                        if self.isNominal[att]:  # Checks whether the data is nominal
-                            attData = self.oneHot(currentDataPoint, att)  # returns a list
+        for currentDataPoint in dataGen:
+            currentDerivedData = {} #Reset the derived data dictionary
+            smoothedData = {}
+            for dataPointPosition in range(self.trimmed_workout_length):
+                dataList = []  # A mutable data structure to allow us to construct the data instance...
+                for j, att in enumerate(inputAttributes):
+                    if self.isDerived[att]:
+                        #handle the derived variables
+                        if att in currentDerivedData.keys():
+                            #Use the data from the current data point position
+                            attData = currentDerivedData[att][dataPointPosition]
                         else:
-                            attData = currentDataPoint[att]  # Handles ordinal and numeric data
-
-                scaledAttData = self.scaleData(attData, att, self.zMultiple)  # Rescales data if needed
-                if self.isList(scaledAttData):
-                    dataList.extend(scaledAttData)
-                else:
-                    dataList.append(scaledAttData)
-            #Now do the same for the target attribute
-            if self.isSequence[targetAtt]:  # Need to limit the sequence to the end of the batch...
-                # Put the target attribute in its proper positions in the tensor array
-                # These are numeric encoding schemes.
-                if self.isDerived[targetAtt]:
-                    if targetAtt in currentDerivedData.keys():
-                        #Use the data from the current data point position
-                        attTarData = currentDerivedData[targetAtt][dataPointPosition]
+                            #Generate the data and then use the data from the current data point position which should be 0
+                            currentDerivedData[att] = self.deriveData(att, currentDataPoint)
+                            attData = currentDerivedData[att][dataPointPosition]
                     else:
-                        #Generate the data and then use the data from the current data point position which should be 0
-                        temp_derived_tar_data = self.deriveData(targetAtt, currentDataPoint)
+                        if self.isSequence[att]:  # Need to limit the sequence to the end of the batch...
+                            # Put the sequence attributes in their proper positions in the tensor array
+                            # These are numeric encoding schemes.
+                            attData = float(currentDataPoint[att][dataPointPosition])  # Get the next entry in the attribute sequence for the current data point
+                        else:
+                            # Put the context attributes in their proper positions in the tensor array
+                            # These are a one-hot encoding schemes except in the case of "age" and the like
+                            if self.isNominal[att]:  # Checks whether the data is nominal
+                                attData = self.oneHot(currentDataPoint, att)  # returns a list
+                            else:
+                                attData = currentDataPoint[att]  # Handles ordinal and numeric data
+
+                    scaledAttData = self.scaleData(attData, att, self.zMultiple)  # Rescales data if needed
+                    if self.isList(scaledAttData):
+                        dataList.extend(scaledAttData)
+                    else:
+                        dataList.append(scaledAttData)
+                #Now do the same for the target attribute
+                if self.isSequence[targetAtt]:  # Need to limit the sequence to the end of the batch...
+                    # Put the target attribute in its proper positions in the tensor array
+                    # These are numeric encoding schemes.
+                    if self.isDerived[targetAtt]:
+                        if targetAtt in currentDerivedData.keys():
+                            #Use the data from the current data point position
+                            attTarData = currentDerivedData[targetAtt][dataPointPosition]
+                        else:
+                            #Generate the data and then use the data from the current data point position which should be 0
+                            temp_derived_tar_data = self.deriveData(targetAtt, currentDataPoint)
+                            if self.perform_target_smoothing:
+                                smoothed_derived_tar_data = self.median_smoothing(temp_derived_tar_data, self.m_smooth_window)
+                                currentDerivedData[targetAtt] = smoothed_derived_tar_data
+                            else:
+                                currentDerivedData[targetAtt] = temp_derived_tar_data
+                            attTarData = currentDerivedData[targetAtt][dataPointPosition]
+                    else:
                         if self.perform_target_smoothing:
-                            smoothed_derived_tar_data = self.median_smoothing(temp_derived_tar_data, self.m_smooth_window)
-                            currentDerivedData[targetAtt] = smoothed_derived_tar_data
+                            if targetAtt in smoothedData.keys():
+                                attTarData = float(smoothedData[targetAtt][dataPointPosition])
+                            else:
+                                smoothedData[targetAtt] = self.median_smoothing(currentDataPoint[targetAtt], self.m_smooth_window)
+                                attTarData = float(smoothedData[targetAtt][dataPointPosition])
                         else:
-                            currentDerivedData[targetAtt] = temp_derived_tar_data
-                        attTarData = currentDerivedData[targetAtt][dataPointPosition]
+                            attTarData = float(currentDataPoint[targetAtt][dataPointPosition])  # Get the next entry in the attribute sequence for the current data point
                 else:
-                    if self.perform_target_smoothing:
-                        if targetAtt in smoothedData.keys():
-                            attTarData = float(smoothedData[targetAtt][dataPointPosition])
-                        else:
-                            smoothedData[targetAtt] = self.median_smoothing(currentDataPoint[targetAtt], self.m_smooth_window)
-                            attTarData = float(smoothedData[targetAtt][dataPointPosition])
+                    # Put the context attributes in their proper positions in the tensor array
+                    # These are a one-hot encoding schemes except in the case of "age" and the like
+                    if self.isNominal[targetAtt]:  # Checks whether the data is nominal
+                        attTarData = self.oneHot(currentDataPoint, targetAtt)  # returns a list
                     else:
-                        attTarData = float(currentDataPoint[targetAtt][dataPointPosition])  # Get the next entry in the attribute sequence for the current data point
-            else:
-                # Put the context attributes in their proper positions in the tensor array
-                # These are a one-hot encoding schemes except in the case of "age" and the like
-                if self.isNominal[targetAtt]:  # Checks whether the data is nominal
-                    attTarData = self.oneHot(currentDataPoint, targetAtt)  # returns a list
+                        attTarData = currentDataPoint[targetAtt]  # Handles ordinal and numeric data
+
+                scaledTargetAttData = self.scaleData(attTarData, targetAtt, self.zMultiple)  # Rescales data if needed
+                targetData = [] #So that we can return it in the same list format as the inputs
+                targetData.append(scaledTargetAttData)#Add the target data for the current data point to the full list
+
+                #Check length of input data vector
+                if len(dataList) == inputDataDim:
+                    inputData = dataList
                 else:
-                    attTarData = currentDataPoint[targetAtt]  # Handles ordinal and numeric data
+                    print("Data list length: " + str(len(dataList)))
+                    print("Data schema length: " + str(len(inputDataDim)))
+                    raise (ValueError("Data is not formatted according to the schema"))
 
-            scaledTargetAttData = self.scaleData(attTarData, targetAtt, self.zMultiple)  # Rescales data if needed
-            targetData = [] #So that we can return it in the same list format as the inputs
-            targetData.append(scaledTargetAttData)#Add the target data for the current data point to the full list
-
-            #Check length of input data vector
-            if len(dataList) == inputDataDim:
-                inputData = dataList
-            else:
-                print("Data list length: " + str(len(dataList)))
-                print("Data schema length: " + str(len(inputDataDim)))
-                raise (ValueError("Data is not formatted according to the schema"))
-
-            dataPointPosition += 1
-            if moreData:
                 yield [inputData, targetData]
 
 
@@ -243,9 +222,18 @@ class dataInterpreter(object):
 
             batchGen = self.dataIteratorSupervised(trainValidTest)
 
-            data_len = self.numDataPoints
+            if trainValidTest=="train":
+                set_size_multiple=self.trainValTestSplit[0]
+            elif trainValidTest=="valid":
+                set_size_multiple=self.trainValTestSplit[1]
+            elif trainValidTest=="test":
+                set_size_multiple=self.trainValTestSplit[0]
+            else:
+                raise(ValueError("trainValidTest is not a valid value"))
+            
+            data_len = self.numDataPoints*self.trimmed_workout_length*set_size_multiple
             batch_len = data_len // batch_size
-            epoch_size = (batch_len - 1) // num_steps
+            epoch_size = int((batch_len - 1) // num_steps)
 
             inputDataDim = self.getInputDim(self.targetAtt)
             targetDataDim = self.getTargetDim(self.targetAtt)
@@ -277,10 +265,11 @@ class dataInterpreter(object):
         self.numDataPoints = self.enalteredNumDPs-len(self.excisedList)
         excisedSet = set(self.excisedList)
         self.dataPointList = [x for x in range(self.enalteredNumDPs) if x not in excisedSet]
+        print("Number of data points: " + str(self.numDataPoints))
         
-        trainingSetSize=int(round(self.numDataPoints*valTestSplit[0]))
-        validationSetSize=int(round(self.numDataPoints*valTestSplit[1]))
-        testSetSize=int(round(self.numDataPoints*valTestSplit[2]))
+        trainingSetSize=int(floor(self.numDataPoints*valTestSplit[0]))
+        validationSetSize=int(floor(self.numDataPoints*valTestSplit[1]))
+        testSetSize=int(floor(self.numDataPoints*valTestSplit[2]))
         randomOrderedDataList=self.randomizeDataOrder(self.dataPointList)
         
         self.trainingSet=randomOrderedDataList[0:trainingSetSize]
