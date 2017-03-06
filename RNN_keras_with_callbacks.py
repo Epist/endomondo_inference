@@ -2,11 +2,13 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 
+import keras
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Dropout
 from keras.layers import LSTM
 from keras.layers.core import Reshape
 from keras.utils.data_utils import get_file
+from keras.callbacks import ModelCheckpoint, EarlyStopping
 import numpy as np
 import random
 import sys
@@ -18,6 +20,12 @@ from math import floor
 import matplotlib
 #matplotlib.use('agg')
 import matplotlib.pyplot as plt
+import time
+import datetime
+
+patience = 3
+max_epochs = 50
+
 
 zMultiple = 5
 
@@ -56,12 +64,18 @@ print("Endomodel Built!")
 
 
 model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
-model_file_name = "no_user_keras_test"
+model_file_name = "keras_fixedZscores_patience3_noUser"
 
 #pred_gen = endo_reader.endoIteratorSupervised(batch_size_m, num_steps, "test")
 #pred_inputs, pred_targets = pred_gen.next()
 
-for iteration in range(1, 20):
+modelRunIdentifier = datetime.datetime.now().strftime("%I_%M%p_%B_%d_%Y")
+model_file_name += modelRunIdentifier #Applend a unique identifier to the filenames
+
+best_model = None
+best_valid_score = 9999999999
+best_epoch = 0
+for iteration in range(1, max_epochs):
     print()
     print('-' * 50)
     print('Iteration', iteration)
@@ -74,25 +88,52 @@ for iteration in range(1, 20):
     #model.fit_generator(trainDataGen, 2000, 1)
     
     #history = model.fit_generator(trainDataGen, int(floor(base_size_limit*trainValTestSplit[0]*num_steps)), 1)
-    history = model.fit_generator(trainDataGen, base_size_limit*trainValTestSplit[0], 1)
-    model.save(model_save_location+model_file_name+"_epoch_"+str(iteration))
-    """try:
-        with open(summaries_dir+"model_history_"+model_file_name+"_train_epoch_"+str(iteration), "wb") as f:
+
+
+    model_save_fn = model_save_location+model_file_name+"_epoch_"+str(iteration)
+    checkpoint = ModelCheckpoint(model_save_fn, verbose=1, save_best_only=False, save_weights_only=False, mode='auto', period=1)
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=2, verbose=1, mode='auto')
+
+
+    #history = model.fit_generator(trainDataGen, base_size_limit*trainValTestSplit[0], 1, callbacks=[checkpoint, early_stopping], validation_data=validDataGen,
+    #    nb_val_samples=base_size_limit*trainValTestSplit[1])
+    #history = model.fit_generator(trainDataGen, base_size_limit*trainValTestSplit[0], 1, callbacks=[checkpoint, early_stopping])
+    history = model.fit_generator(trainDataGen, base_size_limit*trainValTestSplit[0], 1, callbacks=[checkpoint])
+
+    try:
+        del history.model
+        with open(summaries_dir+"model_history_"+model_file_name+"_epoch_"+str(iteration), "wb") as f:
             pickle.dump(history, f)
         print("Model history saved")
     except:
-        pass"""
+        pass
 
-    #validDataGen = endo_reader.generator_for_autotrain(batch_size_m, num_steps, "valid", epoch_size_limit=int(base_size_limit*trainValTestSplit[1]))
     validDataGen = endo_reader.generator_for_autotrain(batch_size_m, num_steps, "valid")
-    #history = model.evaluate_generator(validDataGen, int(floor(base_size_limit*trainValTestSplit[1]*num_steps)))
+    #validDataGen = endo_reader.generator_for_autotrain(batch_size_m, num_steps, "valid", epoch_size_limit=int(base_size_limit*trainValTestSplit[1]))
+    #valid_score = model.evaluate_generator(validDataGen, int(floor(base_size_limit*trainValTestSplit[1]*num_steps)))
     valid_score = model.evaluate_generator(validDataGen, base_size_limit*trainValTestSplit[1])
     print(valid_score)
     try:
-        with open(summaries_dir+"model_score_"+model_file_name+"_valid_epoch_"+str(iteration), "wb") as f:
+        with open(summaries_dir+"model_valid_score_"+model_file_name+"_epoch_"+str(iteration), "wb") as f:
             pickle.dump(valid_score, f)
-        print("Model score saved")
+        print("Model validation score saved")
     except:
         pass
+
+    if valid_score <= best_valid_score:
+        best_valid_score = valid_score
+        #best_model = 
+        best_epoch = iteration
+    elif (iteration-best_epoch <= patience):
+        pass
+    else:
+        print("Stopped early at epoch: " + str(iteration))
+        break
+
+
+best_model = keras.models.load_model(model_save_location+model_file_name+"_epoch_"+str(best_epoch))
+best_model.save(model_save_location+model_file_name+"_bestValidScore")
+
+print("Best epoch: " + str(best_epoch) + "   validation score: " + str(best_valid_score))
 
     

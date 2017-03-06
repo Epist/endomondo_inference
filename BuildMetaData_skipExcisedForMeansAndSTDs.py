@@ -287,20 +287,9 @@ class dataInterpreter(object):
         testSetSize=int(floor(self.numDataPoints*valTestSplit[2]))
         randomOrderedDataList=self.randomizeDataOrder(self.dataPointList)
         
-        if trainingSetSize>0:
-            self.trainingSet=randomOrderedDataList[0:trainingSetSize]
-        else:
-            self.trainingSet = None
-            
-        if validationSetSize>0:
-            self.validationSet=randomOrderedDataList[trainingSetSize:trainingSetSize+validationSetSize]
-        else:
-            self.validationSet = None
-            
-        if testSetSize>0:
-            self.testSet=randomOrderedDataList[trainingSetSize+validationSetSize:trainingSetSize+validationSetSize+testSetSize]
-        else:
-            self.testSet = None
+        self.trainingSet=randomOrderedDataList[0:trainingSetSize]
+        self.validationSet=randomOrderedDataList[trainingSetSize:trainingSetSize+validationSetSize]
+        self.testSet=randomOrderedDataList[trainingSetSize+validationSetSize:trainingSetSize+validationSetSize+testSetSize]
         
         #print("training set size:" + str(len(self.trainingSet))
         #print("validation set size:" + str(len(self.validationSet))
@@ -689,3 +678,12 @@ class metaDataEndomondo(object):
         self.variableMeans = variableMeans
         self.variableStds = variableStds
         
+def main():
+    endoRead=dataInterpreter(fn="../multimodalDBM/endomondoHR_proper.json")
+    endoRead.buildDataSchema(['altitude', 'gender', 'heart_rate', 'userId'], targetAtt='heart_rate')
+    print("Done!!")
+
+
+if __name__ == "__main__":
+    main()
+    
