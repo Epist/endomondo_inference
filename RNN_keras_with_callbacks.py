@@ -22,17 +22,19 @@ import matplotlib
 import matplotlib.pyplot as plt
 import time
 import datetime
+from parse_args_keras import parse_args_keras
+
+#parse_args_keras(sys.argv)
 
 patience = 3
 max_epochs = 50
-
 
 zMultiple = 5
 
 data_path = "../multimodalDBM/endomondoHR_proper.json"
 summaries_dir = "logs/keras/"
 #endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
-endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
+endoFeatures = ["heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
 trainValTestSplit = [0.8, 0.1, 0.1]
 targetAtt = "heart_rate"
 inputOrderNames = [x for x in endoFeatures if x!=targetAtt]
@@ -64,7 +66,7 @@ print("Endomodel Built!")
 
 
 model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
-model_file_name = "keras_fixedZscores_patience3_noUser"
+model_file_name = "keras_fixedZscores_patience3_noUser_noSport"
 
 #pred_gen = endo_reader.endoIteratorSupervised(batch_size_m, num_steps, "test")
 #pred_inputs, pred_targets = pred_gen.next()
@@ -136,4 +138,16 @@ best_model.save(model_save_location+model_file_name+"_bestValidScore")
 
 print("Best epoch: " + str(best_epoch) + "   validation score: " + str(best_valid_score))
 
-    
+print("Testing")
+testDataGen = endo_reader.generator_for_autotrain(batch_size_m, num_steps, "test")
+test_score = model.evaluate_generator(testDataGen, base_size_limit*trainValTestSplit[2])
+print("Test score: " + str(test_score))
+
+
+test_set = endo_reader.testSet
+
+with open(summaries_dir+model_file_name+"_testSet.p", "wb") as f:
+    pickle.dump(test_set, f)
+    print("Model test set saved")
+
+print("Done!!!")
