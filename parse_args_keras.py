@@ -1,4 +1,6 @@
-def parse_args_keras(argv):
+import sys, argparse
+
+def parse_args_keras(argv, model):
     
     #if there is an argument specified for error metric, attributes, or drop in, overwrite the defaults for the corresponding variables to the values specified in the arguments
     #also print the new values and the fact that they were changed for confirmation
@@ -33,15 +35,15 @@ def parse_args_keras(argv):
     #try:
     
     if args.target_att is not None:
-        self.targetAtt = args.target_att
-        print("Added target from command line: " + str(args.target_att))
+        model.targetAtt = args.target_att
+        print("Added target from command line: " + str(model.targetAtt))
     
     if args.attributes is not None:
-        self.endoFeatures = args.attributes
-        self.inputOrderNames = [x for x in endoFeatures if x!=targetAtt]
-        print("Added attributes from command line: " + str(endoFeatures))
+        model.endoFeatures = args.attributes
+        model.inputOrderNames = [x for x in model.endoFeatures if x!=model.targetAtt]
+        print("Added attributes from command line: " + str(model.endoFeatures))
     
     if args.fileNameEnding is not None:
-        self.model_file_name = args.fileNameEnding
+        model.model_file_name = args.fileNameEnding
         
 
