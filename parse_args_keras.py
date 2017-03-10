@@ -35,16 +35,16 @@ def parse_args_keras(argv, model):
     
     #try:
     
-    if args.target_atts not None:
+    if args.target_atts is not None:
         model.targetAtts = args.target_atts
         print("Added targets from command line: " + str(model.targetAtts))
     
-    if args.attributes not None:
+    if args.attributes is not None:
         model.endoFeatures = args.attributes
         model.inputOrderNames = [x for x in model.endoFeatures if x not in model.targetAtts]
         print("Added attributes from command line: " + str(model.endoFeatures))
     
-    if args.fileNameEnding not None:
+    if args.fileNameEnding is not None:
         model.model_file_name = args.fileNameEnding
 
     if args.scale_toggle == "True" or "true":
