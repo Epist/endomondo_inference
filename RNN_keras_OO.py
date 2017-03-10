@@ -44,7 +44,7 @@ class keras_endoLSTM(object):
         self.endoFeatures = ["heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
         self.trainValTestSplit = [0.8, 0.1, 0.1]
         self.targetAtts = ["heart_rate"]
-        self.inputOrderNames = [x for x in self.endoFeatures if x is not in self.targetAtts]
+        self.inputOrderNames = [x for x in self.endoFeatures if x not in self.targetAtts]
         self.trimmed_workout_len = 450
         self.num_steps = 128
         self.batch_size_m = 64

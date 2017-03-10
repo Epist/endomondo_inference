@@ -50,7 +50,7 @@ class dataInterpreter(object):
         self.dataDim=dataDimSum
         
         #Create a dictionary that takes an attribute and returns a beginning and end position of the attribute in the input sequence
-        self.inputAttributes =[x for x in self.attributes if x is not in targetAtts]
+        self.inputAttributes =[x for x in self.attributes if x not in targetAtts]
         self.inputIndices={}
         lastIndex=0
         for att in self.inputAttributes:
@@ -324,7 +324,7 @@ class dataInterpreter(object):
         return exc_l
     
     def decoderKey(self):
-        return [x for x in self.attributes if x is not in self.targetAtts]
+        return [x for x in self.attributes if x not in self.targetAtts]
     
     def dataDecoder(self, dataPoints):
         convertedData=[]
@@ -335,7 +335,7 @@ class dataInterpreter(object):
     def dataDecoderDP(self, dataPoint):
         #This function takes an encoded data point (a single time step) and decodes it into a readable set of variables 
         #for use in statistical processing and visualization
-        inputAttributes = [x for x in self.attributes if x is not in self.targetAtts]
+        inputAttributes = [x for x in self.attributes if x not in self.targetAtts]
         #inputDataDim=self.getInputDim(inputAttributes)
         
         try:
