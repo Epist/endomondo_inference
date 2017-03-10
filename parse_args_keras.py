@@ -11,7 +11,7 @@ def parse_args_keras(argv, model):
     #parser.add_argument('-em', dest='lossType', action='store', help='Specify the error metric')
     parser.add_argument('-a', dest='attributes', action='store', nargs='+', help='Specify the attributes')
     parser.add_argument('-fn', dest='fileNameEnding', action='store', help='Append an identifying string to the end of output files')
-    parser.add_argument('-t', dest='target_att', action='store', help='Specify the target attribute')
+    parser.add_argument('-t', dest='target_atts', action='store', nargs='+', help='Specify the target attributes')
     parser.add_argument('-sc', dest='scale_toggle', action='store', default="True", help='Should the data be scaled and normalized before entering the model?')
     
     
@@ -35,13 +35,13 @@ def parse_args_keras(argv, model):
     
     #try:
     
-    if args.target_att is not None:
-        model.targetAtt = args.target_att
-        print("Added target from command line: " + str(model.targetAtt))
+    if args.target_atts is not None:
+        model.targetAtts = args.target_atts
+        print("Added targets from command line: " + str(model.targetAtts))
     
     if args.attributes is not None:
         model.endoFeatures = args.attributes
-        model.inputOrderNames = [x for x in model.endoFeatures if x!=model.targetAtt]
+        model.inputOrderNames = [x for x in model.endoFeatures if x is not in model.targetAtts]
         print("Added attributes from command line: " + str(model.endoFeatures))
     
     if args.fileNameEnding is not None:
