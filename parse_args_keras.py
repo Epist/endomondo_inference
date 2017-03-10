@@ -12,6 +12,7 @@ def parse_args_keras(argv, model):
     parser.add_argument('-a', dest='attributes', action='store', nargs='+', help='Specify the attributes')
     parser.add_argument('-fn', dest='fileNameEnding', action='store', help='Append an identifying string to the end of output files')
     parser.add_argument('-t', dest='target_att', action='store', help='Specify the target attribute')
+    parser.add_argument('-sc', dest='scale_toggle', action='store', default="True", help='Should the data be scaled and normalized before entering the model?')
     
     
     args = parser.parse_args()
@@ -45,5 +46,14 @@ def parse_args_keras(argv, model):
     
     if args.fileNameEnding is not None:
         model.model_file_name = args.fileNameEnding
+
+    if args.scale_toggle == "True" or "true":
+        model.scale_toggle = True
+        print("Scaling the data")
+    elif args.scale_toggle == "False" or "false":
+        model.scale_toggle = False
+        print("Not scaling the data")
+    else:
+        raise(exception("Scale toggle paramater must be either true or false"))
         
 

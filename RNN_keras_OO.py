@@ -49,9 +49,11 @@ class keras_endoLSTM(object):
         self.num_steps = 128
         self.batch_size_m = 64
 
+        self.scale_toggle = True #Should the data values be scaled to their z-scores with the z-multiple?
+
         parse_args_keras(cmdArgs, self)
 
-        self.endo_reader = dataInterpreter(fn=self.data_path, scaleVals=True, trimmed_workout_length=self.trimmed_workout_len)
+        self.endo_reader = dataInterpreter(fn=self.data_path, scaleVals=self.scale_toggle, trimmed_workout_length=self.trimmed_workout_len)
         self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, self.trainValTestSplit, self.zMultiple)
         self.input_dim = self.endo_reader.getInputDim(self.targetAtts)
         self.target_dim = self.endo_reader.getTargetDim(self.targetAtts)
