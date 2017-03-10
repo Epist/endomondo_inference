@@ -13,7 +13,8 @@ import numpy as np
 import random
 import sys, argparse
 
-from data_interpreter_Keras import dataInterpreter, metaDataEndomondo
+#from data_interpreter_Keras import dataInterpreter, metaDataEndomondo
+from data_interpreter_Keras_multiTarget import dataInterpreter, metaDataEndomondo
 from inputManager import inputManager
 import pickle
 from math import floor
@@ -28,7 +29,8 @@ from parse_args_keras import parse_args_keras
 class keras_endoLSTM(object):
     def __init__(self, cmdArgs):
 
-        self.model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
+        #self.model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
+        self.model_save_location = "./model_states/"
         self.model_file_name = "keras_fixedZscores_patience3_noUser_noSport"
         self.patience = 3
         self.max_epochs = 50
@@ -41,8 +43,8 @@ class keras_endoLSTM(object):
         #endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
         self.endoFeatures = ["heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
         self.trainValTestSplit = [0.8, 0.1, 0.1]
-        self.targetAtt = "heart_rate"
-        self.inputOrderNames = [x for x in self.endoFeatures if x!=self.targetAtt]
+        self.targetAtts = ["heart_rate"]
+        self.inputOrderNames = [x for x in self.endoFeatures if x is not in self.targetAtts]
         self.trimmed_workout_len = 450
         self.num_steps = 128
         self.batch_size_m = 64
@@ -50,9 +52,9 @@ class keras_endoLSTM(object):
         parse_args_keras(cmdArgs, self)
 
         self.endo_reader = dataInterpreter(fn=self.data_path, scaleVals=True, trimmed_workout_length=self.trimmed_workout_len)
-        self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtt, self.trainValTestSplit, self.zMultiple)
-        self.input_dim = self.endo_reader.getInputDim(self.targetAtt)
-        self.target_dim = self.endo_reader.getTargetDim(self.targetAtt)
+        self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, self.trainValTestSplit, self.zMultiple)
+        self.input_dim = self.endo_reader.getInputDim(self.targetAtts)
+        self.target_dim = self.endo_reader.getTargetDim(self.targetAtts)
 
         #num_samples = int((trimmed_workout_len*endo_reader.numDataPoints))
         self.num_samples = 81274880
