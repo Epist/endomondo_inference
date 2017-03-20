@@ -25,7 +25,7 @@ class dataInterpreter(object):
         #self.currentDataPoint=None
         self.dataPointPosition=0
         self.attIgnore=['id','url','speed']#Attributes to ignore when building metadata
-        self.metaDataFn=fn[0:len(fn)-5]+"_metaData.p"
+        self.metaDataFn=fn[0:len(fn)-5]+"_metaData_NEW.p"
         self.allowMissingData=allowMissingData
         self.scaleVals=scaleVals
         #self.valTestSplit=(.1,.1)
@@ -834,3 +834,11 @@ class metaDataEndomondo(object):
         self.variableMeans = variableMeans
         self.variableStds = variableStds
         
+def main():
+    endoRead=dataInterpreter(fn="../multimodalDBM/endomondoHR_proper_copy.json")
+    endoRead.buildDataSchema(['altitude', 'gender', 'heart_rate', 'userId'], ['heart_rate'])
+    print("Done!!")
+
+
+if __name__ == "__main__":
+    main()

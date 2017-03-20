@@ -47,10 +47,10 @@ def parse_args_keras(argv, model):
     if args.fileNameEnding is not None:
         model.model_file_name = args.fileNameEnding
 
-    if args.scale_toggle == "True" or "true":
+    if args.scale_toggle == "True" or args.scale_toggle == "true":
         model.scale_toggle = True
         print("Scaling the data")
-    elif args.scale_toggle == "False" or "false":
+    elif args.scale_toggle == "False" or args.scale_toggle ==  "false":
         model.scale_toggle = False
         print("Not scaling the data")
     else:
