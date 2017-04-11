@@ -38,28 +38,31 @@ import datetime
 from parse_args_keras import parse_args_keras
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
+import random
 
 #Params
-target_workout_index = 3 #1234 #Choose a workout to use as the target heart rate!!!
-number_to_search = 999
-target_variable = "heart_rate" #Can only use a single target variable
+#target_workout_index = 3 #1234 #Choose a workout to use as the target heart rate!!!
+number_to_search = 100
+number_of_target_tests = 100
+#target_variable = "heart_rate" #Can only use a single target variable
 distance_metric = "MAE"
-modelFN = "model_states/keras__all08_06PM_March_19_2017_bestValidScore" #keras__noAltitude02_49AM_March_16_2017_epoch_25
+#modelFN = "model_states/keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore" # "model_states/keras__all08_06PM_March_19_2017_bestValidScore"
+#modelFN = "model_states/keras__all_speedTarget_noTarScaling06_26PM_March_21_2017_bestValidScore"
+#modelFN = "model_states/keras__all08_06PM_March_19_2017_bestValidScore"
+modelFN = "model_states/keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore"
 
-
-
-data_path = "../multimodalDBM/endomondoHR_proper_copy.json"
-#endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
-endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
+data_path = "../multimodalDBM/endomondoHR_proper_newmeta_copy.json" # "../multimodalDBM/endomondoHR_proper_copy.json"
+endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
 targetAtts = ["heart_rate"]
 trimmed_workout_len = 450
 scale_toggle = True
+scaleTargets= False #"scaleVals" #False
 zMultiple = 5
-endoReader = dataInterpreter(fn=data_path, scaleVals=scale_toggle, trimmed_workout_length=trimmed_workout_len)
+endoReader = dataInterpreter(fn=data_path, scaleVals=scale_toggle, trimmed_workout_length=trimmed_workout_len, scaleTargets=scaleTargets)
 endoReader.buildDataSchema(endoFeatures, targetAtts, zMultiple = zMultiple)
 
-if target_workout_index not in endoReader.dataPointList:
-	raise(exception("The target workout is in the excised list!!! Choose another..."))
+#if target_workout_index not in endoReader.dataPointList:
+#	raise(exception("The target workout is in the excised list!!! Choose another..."))
 
 
 class workout(object):
@@ -94,8 +97,13 @@ def eval_model(predictedTrace, targetSeq, distance_metric):
 	if distance_metric == "MAE":
 		return mean_absolute_error(predictedTrace, targetSeq)
 
+#def eval_model_interp(predictedTrace, targetSeq, testTimes, targetTimes, rate):
+	#Takes in the heart rate traces from the prediction and the target as well as the elapsed time sequences for both 
+	#and interpolates and resamples them so that they share a time axis (using the rate paramater to define the steps in the time sequence)
+	#Then it computes the distance between the two series'
 
-availableWorkouts = [x for x in endoReader.dataPointList if x != target_workout_index]
+
+availableWorkouts = endoReader.dataPointList
 
 def genRandomWorkoutList(numWorkouts, availableWorkouts):
 	#From the available workouts, select numWorkouts, generate the workout objects, and add them to a list
@@ -111,12 +119,11 @@ def workoutFitCompare(wo1, wo2):
 	else:
 		return 0
 
-#Generate the list of random workouts
-workoutList = genRandomWorkoutList(number_to_search, availableWorkouts)
-
-#Add the target workout to the list of random workouts
-targetWorkout = workout(target_workout_index)
-workoutList.append(targetWorkout)
+def findTargetRank(sortedWOList, target_workout_index):
+	for i, wo in enumerate(sortedWOList):
+		if wo.workoutIndex == target_workout_index:
+			return i+1 #Rank is indexed from 1
+	raise(exception("Target workout not in the list"))
 
 #Load a trained model
 def load_and_rebuild_model(modelFN, num_steps, input_dim, target_dim):
@@ -141,37 +148,53 @@ def load_and_rebuild_model(modelFN, num_steps, input_dim, target_dim):
 
 model = load_and_rebuild_model(modelFN, trimmed_workout_len, endoReader.getInputDim(targetAtts), endoReader.getTargetDim(targetAtts))
 
-#Compute the predicted heart rate sequences on each workout in the list
-print("Predicting workouts")
-for i, wo in enumerate(workoutList):
-	if i%100==0:
-		print("Predicted " + str(i) + " workouts so far")
-	inputSeq = wo.inputSeq
-	targetSeq = targetWorkout.targetSeq
-	predictedTrace = predict_model(model, inputSeq)
-	#Compute the similarity for each heart rate sequence (Could do this by using the target HR seq as the target seq in the model)
-	eval_score = eval_model(predictedTrace[0,:,:], targetSeq[0,:,:], distance_metric)
-	wo.predictedTrace = predictedTrace
-	wo.evalScore = eval_score
+print("Model filename: " + modelFN)
+print("Distance metric: " + distance_metric)
 
-#Sort the list of workouts by similarityScore
-#Impliment a custom comparator for workout objects. Then use a library quicksort to sort the list
-print("Sorting workouts")
-#workoutList.sort(workoutFitCompare)
-workoutList.sort(key=lambda x: x.evalScore)
+target_ranks = []
+for i in range(number_of_target_tests):
+	print("  Computed " + str(i) + " target AUCs so far")
+	#Generate the list of random workouts
+	workoutList = genRandomWorkoutList(number_to_search, availableWorkouts)
 
-#Find the position of the targetWorkout in the sorted list of workouts
-def findTargetRank(sortedWOList, target_workout_index):
-	for i, wo in enumerate(sortedWOList):
-		if wo.workoutIndex == target_workout_index:
-			return i+1 #Rank is indexed from 1
-	raise(exception("Target workout not in the list"))
+	#Get random target workout
+	targetWorkout = random.choice(workoutList)
+	target_workout_index = targetWorkout.workoutIndex
 
-targetRank = findTargetRank(workoutList, target_workout_index)
-print("Target rank: " + str(targetRank) + " out of " + str(number_to_search+1))
-print("Target " + distance_metric + " is " + str(workoutList[targetRank-1].evalScore))
-print("Best " + distance_metric + " is " + str(workoutList[0].evalScore))
-print("Worst " + distance_metric + " is " + str(workoutList[number_to_search].evalScore))
+	#workoutList.append(targetWorkout)
+
+	#Compute the predicted heart rate sequences on each workout in the list
+	print("    Predicting workouts")
+	for j, wo in enumerate(workoutList):
+		#if j%100==0:
+		#	print("Predicted " + str(j) + " workouts so far")
+		inputSeq = wo.inputSeq
+		targetSeq = targetWorkout.targetSeq
+		predictedTrace = predict_model(model, inputSeq)
+		#Compute the similarity for each heart rate sequence (Could do this by using the target HR seq as the target seq in the model)
+		eval_score = eval_model(predictedTrace[0,:,:], targetSeq[0,:,:], distance_metric)
+		wo.predictedTrace = predictedTrace
+		wo.evalScore = eval_score
+
+	#Sort the list of workouts by similarityScore
+	#Impliment a custom comparator for workout objects. Then use a library quicksort to sort the list
+	print("    Sorting workouts")
+	#workoutList.sort(workoutFitCompare)
+	workoutList.sort(key=lambda x: x.evalScore)
+
+	#Find the position of the targetWorkout in the sorted list of workouts
+
+
+	targetRank = findTargetRank(workoutList, target_workout_index)
+	target_ranks.append(targetRank)
+	print("    Target rank: " + str(targetRank) + " out of " + str(number_to_search))
+	#print("    Target " + distance_metric + " is " + str(workoutList[targetRank-1].evalScore))
+	#print("    Best " + distance_metric + " is " + str(workoutList[0].evalScore))
+	#print("    Worst " + distance_metric + " is " + str(workoutList[number_to_search].evalScore))
+
+average_target_rank = np.mean(target_ranks)
+print("The average target rank for " + str(number_of_target_tests) + " random targets and " + str(number_to_search) + " comaprisons per target is " + str(average_target_rank))
+print("The AUC is " + str(1-(average_target_rank/number_to_search)))
 
 #Save the ordered list of workouts as well as the targetWorkout and the paramaters 
 

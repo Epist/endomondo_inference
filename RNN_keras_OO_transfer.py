@@ -14,7 +14,7 @@ import random
 import sys, argparse
 
 #from data_interpreter_Keras import dataInterpreter, metaDataEndomondo
-from data_interpreter_Keras_multiTarget import dataInterpreter, metaDataEndomondo
+from data_interpreter_Keras_transfer import dataInterpreter, metaDataEndomondo
 from inputManager import inputManager
 import pickle
 from math import floor
@@ -27,99 +27,86 @@ from parse_args_keras import parse_args_keras
 
 
 class keras_endoLSTM(object):
-    def __init__(self, cmdArgs, newModel):
+    def __init__(self, cmdArgs):
 
-        if newModel:
-            #self.model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
-            self.model_save_location = "./model_states/"
-            self.model_file_name = "keras_fixedZscores_patience3_noUser_noSport"
-            self.patience = 3
-            self.max_epochs = 50
 
-            self.zMultiple = 5
+        self.old_model_file_name = "keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore"
 
-            self.data_path = "../multimodalDBM/endomondoHR_proper_newmeta.json"
-            self.summaries_dir = "logs/keras/"
+        #self.model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
+        self.model_save_location = "./model_states/"
+        self.model_file_name = "keras_fixedZscores_patience3_noUser_noSport"
+        self.patience = 3
+        self.max_epochs = 50
 
-            #self.endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
-            self.trainValTestSplit = [0.8, 0.1, 0.1]
-            self.targetAtts = ["heart_rate"]
-            #self.inputOrderNames = [x for x in self.endoFeatures if x not in self.targetAtts]
-            self.trimmed_workout_len = 450
-            self.num_steps = 128
-            self.batch_size_m = 64
+        self.zMultiple = 5
 
-            self.scale_toggle = True #Should the data values be scaled to their z-scores with the z-multiple?
-            self.scaleTargets = True
+        self.data_path = "../multimodalDBM/endomondoHR_proper_newmeta.json"
+        self.summaries_dir = "logs/keras/"
 
-            parse_args_keras(cmdArgs, self)
+        #endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
+        #self.endoFeatures = ["heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
 
-            self.endo_reader = dataInterpreter(fn=self.data_path, scaleVals=self.scale_toggle, trimmed_workout_length=self.trimmed_workout_len, scaleTargets=self.scaleTargets)
-            self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, self.trainValTestSplit, self.zMultiple)
-            self.input_dim = self.endo_reader.getInputDim(self.targetAtts)
-            self.target_dim = self.endo_reader.getTargetDim(self.targetAtts)
+        self.originalAttributes = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
 
-            #num_samples = int((trimmed_workout_len*endo_reader.numDataPoints))
-            self.num_samples = 81274880
+        self.trainValTestSplit = [0.8, 0.1, 0.1]
+        self.targetAtts = ["heart_rate"]
+        #self.inputOrderNames = [x for x in self.endoFeatures if x not in self.targetAtts]
+        self.trimmed_workout_len = 450
+        self.num_steps = 128
+        self.batch_size_m = 64
 
-            #Save endoreader
-            #with open(self.model_save_location+self.model_file_name+"_endoreader.p", "wb") as f:
-            #    pickle.dump(self.endo_reader, f)
-            #    print("Endoreader saved")
+        self.scale_toggle = True #Should the data values be scaled to their z-scores with the z-multiple?
+        self.scaleTargets = False
 
-            training_set = self.endo_reader.trainingSet
-            validation_set = self.endo_reader.validationSet
-            test_set = self.endo_reader.testSet
+        parse_args_keras(cmdArgs, self)
 
-            with open(self.summaries_dir+self.model_file_name+"_trainSet.p", "wb") as f:
-                pickle.dump(training_set, f)
-                print("Model train set saved")
+        self.endo_reader = dataInterpreter(fn=self.data_path, scaleVals=self.scale_toggle, trimmed_workout_length=self.trimmed_workout_len, scaleTargets=self.scaleTargets)
+        self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, self.originalAttributes, self.trainValTestSplit, self.zMultiple)
+        self.input_dim = self.endo_reader.getInputDim(self.targetAtts)
+        self.target_dim = self.endo_reader.getTargetDim(self.targetAtts)
 
-            with open(self.summaries_dir+self.model_file_name+"_valSet.p", "wb") as f:
-                pickle.dump(validation_set, f)
-                print("Model val set saved")
+        #num_samples = int((trimmed_workout_len*endo_reader.numDataPoints))
+        self.num_samples = 81274880
 
-            with open(self.summaries_dir+self.model_file_name+"_testSet.p", "wb") as f:
-                pickle.dump(test_set, f)
-                print("Model test set saved")
+        #Save endoreader
+        #with open(self.model_save_location+self.model_file_name+"_endoreader.p", "wb") as f:
+        #    pickle.dump(self.endo_reader, f)
+        #    print("Endoreader saved")
 
-            self.model = self.build_model()
-        """
-        elif newModel is False:
-            self.model_save_location
-            old_model_file_name 
-            #old_modelRunIdentifier
-            #old_modelEpoch
-            self.endoFeatures
-            new_input_dim
-            self.input_dim = new_input_dim
-            self.targetAtts = ["heart_rate"]
+        training_set = self.endo_reader.trainingSet
+        validation_set = self.endo_reader.validationSet
+        test_set = self.endo_reader.testSet
 
-            #Load the old endoreader
-            #with open(self.model_save_location+old_model_file_name+"_endoreader.p", "rb") as f:
-            #    self.endo_reader = pickle.load(f)
-            #    print("Endoreader loaded")
-            self.batch_size_m = endo_reader.batch_size
-            self.num_steps = self.endo_reader.num_steps
-            self.target_dim = endo_reader.getTargetDim(targetAtts)
+        with open(self.summaries_dir+self.model_file_name+"_trainSet.p", "wb") as f:
+            pickle.dump(training_set, f)
+            print("Model train set saved")
 
-            #Load the old model
-            old_model_fullFN = self.model_save_location+old_model_file_name
-            self.model = load_and_rebuild_model(old_model_fullFN, self.batch_size_m, self.num_steps, self.input_dim, self.target_dim)
+        with open(self.summaries_dir+self.model_file_name+"_valSet.p", "wb") as f:
+            pickle.dump(validation_set, f)
+            print("Model val set saved")
 
-            #Transform the model to fit the new input attributes
+        with open(self.summaries_dir+self.model_file_name+"_testSet.p", "wb") as f:
+            pickle.dump(test_set, f)
+            print("Model test set saved")
+        
+         
+        #Load the old model
+        self.old_model_fullFN = self.model_save_location+self.old_model_file_name
+        self.model = self.load_and_rebuild_model()
 
-    def load_and_rebuild_model(modelFN, batch_size_m, num_steps, new_input_dim, target_dim):
-        oldModel = keras.models.load_model(modelFN)#Load a model that has already been trained
+        #Transform the model to fit the new input attributes
+
+    def load_and_rebuild_model(self):
+        oldModel = keras.models.load_model(self.old_model_fullFN)#Load a model that has already been trained
 
         print('Rebuild model...')
         model = Sequential()
         #model.add(Reshape((batch_size_m, num_steps, input_dim), batch_input_shape=(batch_size_m*num_steps, input_dim)))
-        model.add(LSTM(128, return_sequences=True, batch_input_shape=(batch_size_m, num_steps, new_input_dim), stateful=True))
+        model.add(LSTM(128, return_sequences=True, batch_input_shape=(self.batch_size_m, self.num_steps, self.input_dim), stateful=True))
         model.add(Dropout(0.2))
         model.add(LSTM(128, return_sequences=True, stateful=True))
         model.add(Dropout(0.2))
-        model.add(Dense(target_dim))
+        model.add(Dense(self.target_dim))
         model.add(Activation('linear'))
 
         model.compile(loss='mean_squared_error', optimizer='rmsprop')
@@ -128,7 +115,7 @@ class keras_endoLSTM(object):
         print("Endomodel Built!")
 
         return model
-"""
+
     def build_model(self):
 
         print('Build model...')
@@ -142,7 +129,7 @@ class keras_endoLSTM(object):
         model.add(Activation('linear'))
 
         model.compile(loss='mean_squared_error', optimizer='rmsprop')
-        print("Endomodel Built!")
+        print("Endomodel built with loaded weights!")
 
         return model
 
@@ -185,27 +172,6 @@ class keras_endoLSTM(object):
             #    nb_val_samples=base_size_limit*trainValTestSplit[1])
             #history = model.fit_generator(trainDataGen, base_size_limit*trainValTestSplit[0], 1, callbacks=[checkpoint, early_stopping])
             history = model.fit_generator(trainDataGen, base_size_limit*self.trainValTestSplit[0], 1, callbacks=[checkpoint])
-
-            """
-            trainDataGen = endo_reader.endoIteratorSupervised(batch_size_m, num_steps, "train")
-            train_losses = []
-            total_gen_runs = (num_samples*trainValTestSplit[0])/(num_steps*batch_size_m)
-            num_generator_runs = 0
-            for X, Y in train_gen:
-                #model.fit(input_data, target_data, batch_size=batch_size_m, nb_epoch=1)
-                batch_loss = model.train_on_batch(X,Y)
-                train_losses.append(batch_loss)
-
-                num_generator_runs+=1
-                fraction_complete = num_generator_runs/total_gen_runs
-                print("\r", end='')
-                count+=1
-                running_mean = (running_mean*(count-1)+batch_loss)/count
-                print("Current batch loss: " + str(batch_loss) + "    average loss for current epoch: " + str(running_mean) + "    {0:.3f} complete".format(fraction_complete), end='')
-            epoch_train_loss = np.mean(train_losses)
-            print("\nTraining loss: " + str(epoch_train_loss))
-            epoch_train_scores.append(epoch_train_loss)
-            """
 
             try:
                 del history.model
@@ -252,8 +218,7 @@ class keras_endoLSTM(object):
         print("Done!!!")
 
 def main(argv):
-    newModel = True
-    my_lstm = keras_endoLSTM(argv, newModel)
+    my_lstm = keras_endoLSTM(argv)
     my_lstm.run_model(my_lstm.model)
 
 if __name__ == "__main__":

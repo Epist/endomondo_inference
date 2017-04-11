@@ -41,7 +41,8 @@ class keras_endoLSTM(object):
             self.data_path = "../multimodalDBM/endomondoHR_proper_newmeta.json"
             self.summaries_dir = "logs/keras/"
 
-            #self.endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
+            #endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
+            #self.endoFeatures = ["heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
             self.trainValTestSplit = [0.8, 0.1, 0.1]
             self.targetAtts = ["heart_rate"]
             #self.inputOrderNames = [x for x in self.endoFeatures if x not in self.targetAtts]
@@ -50,7 +51,7 @@ class keras_endoLSTM(object):
             self.batch_size_m = 64
 
             self.scale_toggle = True #Should the data values be scaled to their z-scores with the z-multiple?
-            self.scaleTargets = True
+            self.scaleTargets = False
 
             parse_args_keras(cmdArgs, self)
 
@@ -162,13 +163,15 @@ class keras_endoLSTM(object):
 
         base_size_limit = int(floor(self.num_samples/self.num_steps))
 
+        epoch_train_scores = []
+        epoch_valid_scores = []
         for iteration in range(1, self.max_epochs):
             print()
             print('-' * 50)
             print('Iteration', iteration)
 
             #trainDataGen = endo_reader.generator_for_autotrain(batch_size_m, num_steps, "train", epoch_size_limit=int(base_size_limit*trainValTestSplit[0])) 
-            trainDataGen = self.endo_reader.generator_for_autotrain(self.batch_size_m, self.num_steps, "train")  
+            #trainDataGen = self.endo_reader.generator_for_autotrain(self.batch_size_m, self.num_steps, "train")  
             
             #history = model.fit_generator(trainDataGen, int(num_samples*trainValTestSplit[0]/batch_size_m), 1, validation_data=validDataGen, nb_val_samples = int(num_samples*trainValTestSplit[1]/batch_size_m))
             #model.fit_generator(trainDataGen, 2000, 1)
@@ -177,21 +180,23 @@ class keras_endoLSTM(object):
 
 
             model_save_fn = self.model_save_location+self.model_file_name+"_epoch_"+str(iteration)
-            checkpoint = ModelCheckpoint(model_save_fn, verbose=1, save_best_only=False, save_weights_only=False, mode='auto', period=1)
-            early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=2, verbose=1, mode='auto')
+            #checkpoint = ModelCheckpoint(model_save_fn, verbose=1, save_best_only=False, save_weights_only=False, mode='auto', period=1)
+            #early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=2, verbose=1, mode='auto')
 
 
             #history = model.fit_generator(trainDataGen, base_size_limit*trainValTestSplit[0], 1, callbacks=[checkpoint, early_stopping], validation_data=validDataGen,
             #    nb_val_samples=base_size_limit*trainValTestSplit[1])
             #history = model.fit_generator(trainDataGen, base_size_limit*trainValTestSplit[0], 1, callbacks=[checkpoint, early_stopping])
-            history = model.fit_generator(trainDataGen, base_size_limit*self.trainValTestSplit[0], 1, callbacks=[checkpoint])
+            #history = model.fit_generator(trainDataGen, base_size_limit*self.trainValTestSplit[0], 1, callbacks=[checkpoint])
 
-            """
-            trainDataGen = endo_reader.endoIteratorSupervised(batch_size_m, num_steps, "train")
+            
+            trainDataGen = self.endo_reader.endoIteratorSupervised(self.batch_size_m, self.num_steps, "train")
             train_losses = []
-            total_gen_runs = (num_samples*trainValTestSplit[0])/(num_steps*batch_size_m)
+            running_mean=0
+            count=0
+            total_gen_runs = (self.num_samples*self.trainValTestSplit[0])/(self.num_steps*self.batch_size_m)
             num_generator_runs = 0
-            for X, Y in train_gen:
+            for X, Y in trainDataGen:
                 #model.fit(input_data, target_data, batch_size=batch_size_m, nb_epoch=1)
                 batch_loss = model.train_on_batch(X,Y)
                 train_losses.append(batch_loss)
@@ -205,20 +210,40 @@ class keras_endoLSTM(object):
             epoch_train_loss = np.mean(train_losses)
             print("\nTraining loss: " + str(epoch_train_loss))
             epoch_train_scores.append(epoch_train_loss)
-            """
 
+            print("Saving model")
+            model.save(model_save_fn)
+            
+            
             try:
                 del history.model
-                with open(self.summaries_dir+"model_history_"+self.model_file_name+"_epoch_"+str(iteration), "wb") as f:
-                    pickle.dump(history, f)
-                print("Model history saved")
+                with open(self.summaries_dir+"train_history_"+self.model_file_name+"_epoch_"+str(iteration), "wb") as f:
+                    pickle.dump(epoch_train_scores, f)
+                print("Model and train history saved")
             except:
                 pass
+            
 
-            validDataGen = self.endo_reader.generator_for_autotrain(self.batch_size_m, self.num_steps, "valid")
+            validDataGen = self.endo_reader.endoIteratorSupervised(self.batch_size_m, self.num_steps, "valid")
             #validDataGen = endo_reader.generator_for_autotrain(batch_size_m, num_steps, "valid", epoch_size_limit=int(base_size_limit*trainValTestSplit[1]))
             #valid_score = model.evaluate_generator(validDataGen, int(floor(base_size_limit*trainValTestSplit[1]*num_steps)))
-            valid_score = model.evaluate_generator(validDataGen, base_size_limit*self.trainValTestSplit[1])
+            #valid_score = model.evaluate_generator(validDataGen, base_size_limit*self.trainValTestSplit[1])
+
+            num_generator_runs = 0
+            valid_losses = []
+            print("Validating")
+            #evaluate_generator(dataGen, num_samples, 1)
+            for X, y in validDataGen:
+                batch_loss = model.test_on_batch(X, y)
+                valid_losses.append(batch_loss)
+                print("-", end='')
+                num_generator_runs+=1
+                #print("Current batch loss: " + str(batch_loss) + "    average loss for current epoch: " + str(np.mean(valid_losses)), end='\n')
+            valid_score = np.mean(valid_losses)
+            print("num generator runs: ", num_generator_runs)
+            print("\nValidation loss: " + str(valid_score))
+            epoch_valid_scores.append(valid_score)
+
             print(valid_score)
             try:
                 with open(self.summaries_dir+"model_valid_score_"+self.model_file_name+"_epoch_"+str(iteration), "wb") as f:

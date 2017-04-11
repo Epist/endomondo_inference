@@ -39,7 +39,10 @@ class dataInterpreter(object):
         #if attributes is not None:
         #    self.buildDataSchema(attributes)
     
-    def buildDataSchema(self, attributes, targetAtts, trainValTestSplit=[.8,.1,.1], zMultiple = 2):
+    def buildDataSchema(self, attributes, targetAtts, originalAttributes, trainValTestSplit=[.8,.1,.1], zMultiple = 2):
+        self.originalAttributes = originalAttributes
+        self.originalInputAtts = [x for x in self.originalAttributes if x not in targetAtts]
+
         self.targetAtts=targetAtts
         self.buildMetaData()
         self.trainValTestSplit = trainValTestSplit
@@ -48,21 +51,23 @@ class dataInterpreter(object):
         self.attributes=attributes
         self.zMultiple = zMultiple
         dataDimSum=0
-        for att in self.attributes:
+        for att in self.originalAttributes:
             dataDimSum=dataDimSum+self.encodingLengths[att]
         self.dataDim=dataDimSum
         
         #Create a dictionary that takes an attribute and returns a beginning and end position of the attribute in the input sequence
         self.inputAttributes =[x for x in self.attributes if x not in targetAtts]
+            
+        self.dataSchemaLoaded=True
+        
+
         self.inputIndices={}
         lastIndex=0
-        for att in self.inputAttributes:
+        for att in self.originalInputAtts:
             nextIndex=lastIndex+self.encodingLengths[att]
             self.inputIndices[att]=(lastIndex, nextIndex)
             lastIndex=nextIndex
-            
-        self.dataSchemaLoaded=True
-    
+
     def createSequentialGenerator(self): #Define a new data generator
         filename = self.dataFileName
         self.f=open(filename, 'r')
@@ -227,13 +232,12 @@ class dataInterpreter(object):
 
         return [inputs, targets]
 
-    
-
     def dataIteratorSupervised(self, trainValidTest):
         targetAtts=self.targetAtts
         #Performs the same job as the batch iterator, but with one of the attributes separated as the supervision signal
         inputAttributes = self.inputAttributes
         inputDataDim=self.getInputDim(targetAtts)
+        #inputDataDim = sum([self.encodingLengths[tA] for tA in self.originalInputAtts])
         targetDataDim=self.getTargetDim(targetAtts)
 
         if trainValidTest == 'train':
@@ -260,34 +264,41 @@ class dataInterpreter(object):
             smoothedData = {}
             for dataPointPosition in range(self.trimmed_workout_length):
                 dataList = []  # A mutable data structure to allow us to construct the data instance...
-                for j, att in enumerate(inputAttributes):
-                    if self.isDerived[att]:
-                        #handle the derived variables
-                        if att in currentDerivedData.keys():
-                            #Use the data from the current data point position
-                            attData = currentDerivedData[att][dataPointPosition]
-                        else:
-                            #Generate the data and then use the data from the current data point position which should be 0
-                            currentDerivedData[att] = self.deriveData(att, currentDataPoint)
-                            attData = currentDerivedData[att][dataPointPosition]
-                    else:
-                        if self.isSequence[att]:  # Need to limit the sequence to the end of the batch...
-                            # Put the sequence attributes in their proper positions in the tensor array
-                            # These are numeric encoding schemes.
-                            attData = float(currentDataPoint[att][dataPointPosition])  # Get the next entry in the attribute sequence for the current data point
-                        else:
-                            # Put the context attributes in their proper positions in the tensor array
-                            # These are a one-hot encoding schemes except in the case of "age" and the like
-                            if self.isNominal[att]:  # Checks whether the data is nominal
-                                attData = self.oneHot(currentDataPoint, att)  # returns a list
+                for j, att in enumerate(self.originalInputAtts):
+                    if att in self.inputAttributes:
+                        if self.isDerived[att]:
+                            #handle the derived variables
+                            if att in currentDerivedData.keys():
+                                #Use the data from the current data point position
+                                attData = currentDerivedData[att][dataPointPosition]
                             else:
-                                attData = currentDataPoint[att]  # Handles ordinal and numeric data
+                                #Generate the data and then use the data from the current data point position which should be 0
+                                currentDerivedData[att] = self.deriveData(att, currentDataPoint)
+                                attData = currentDerivedData[att][dataPointPosition]
+                        else:
+                            if self.isSequence[att]:  # Need to limit the sequence to the end of the batch...
+                                # Put the sequence attributes in their proper positions in the tensor array
+                                # These are numeric encoding schemes.
+                                attData = float(currentDataPoint[att][dataPointPosition])  # Get the next entry in the attribute sequence for the current data point
+                            else:
+                                # Put the context attributes in their proper positions in the tensor array
+                                # These are a one-hot encoding schemes except in the case of "age" and the like
+                                if self.isNominal[att]:  # Checks whether the data is nominal
+                                    attData = self.oneHot(currentDataPoint, att)  # returns a list
+                                else:
+                                    attData = currentDataPoint[att]  # Handles ordinal and numeric data
 
-                    scaledAttData = self.scaleData(attData, att, self.zMultiple)  # Rescales data if needed
-                    if self.isList(scaledAttData):
-                        dataList.extend(scaledAttData)
+                        scaledAttData = self.scaleData(attData, att, self.zMultiple)  # Rescales data if needed
+                        if self.isList(scaledAttData):
+                            dataList.extend(scaledAttData)
+                        else:
+                            dataList.append(scaledAttData)
                     else:
-                        dataList.append(scaledAttData)
+                        blankAtt = list(np.zeros(self.encodingLengths[att]))
+                        if self.isList(blankAtt):
+                            dataList.extend(blankAtt)
+                        else:
+                            dataList.append(blankAtt)
                 #Now do the same for the target attributes
                 targetList = [] #So that we can return it in the same list format as the inputs
                 for j, tAtt in enumerate(targetAtts):

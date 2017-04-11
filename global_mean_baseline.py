@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-from data_interpreter_Keras import dataInterpreter, metaDataEndomondo
+from data_interpreter_Keras_multiTarget import dataInterpreter, metaDataEndomondo
 import time
 import datetime
 import pickle
@@ -12,18 +12,18 @@ trimmed_workout_length=450
 batch_size=1
 num_steps=trimmed_workout_length
 trainValTestSplit=(0, 0, 1)
-predictions_fn = "heart_rate_global_mean_baseline"
-
+predictions_fn = "speed_global_mean_baseline"
+targetVar = "derived_speed"
 
 modelRunIdentifier = datetime.datetime.now().strftime("%I_%M%p_%B_%d_%Y")
 
 #Compute on new metadata with excised data removed
 endoReader_2=dataInterpreter(fn="../multimodalDBM/endomondoHR_proper.json", allowMissingData=True, scaleVals=False, trimmed_workout_length=trimmed_workout_length)
-endoReader_2.buildDataSchema(["sport", "heart_rate"], "heart_rate", trainValTestSplit=trainValTestSplit)
+endoReader_2.buildDataSchema(["sport", "heart_rate", "derived_speed"], [targetVar], trainValTestSplit=trainValTestSplit)
 test_gen = endoReader_2.endoIteratorSupervised(batch_size, num_steps, 'test')
 
 
-heart_rate_mean = endoReader_2.variableMeans["heart_rate"]
+heart_rate_mean = endoReader_2.variableMeans[targetVar]
 #dspeed_mean = endoReader_2.variableMeans["derived_speed"]
 
 
@@ -41,7 +41,7 @@ test_scores = compute_global_mean_error(heart_rate_mean, test_gen)
 with open(predictions_fn+modelRunIdentifier+".p", "wb") as f:
     pickle.dump(test_scores, f)
     
-print("MAE using global mean HR as a baseline " + str(np.mean(test_scores)))
+print("MSE using global mean " + targetVar + " as a baseline " + str(np.mean(test_scores)))
         
         
         
