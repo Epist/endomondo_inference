@@ -39,11 +39,17 @@ class dataInterpreter(object):
         #if attributes is not None:
         #    self.buildDataSchema(attributes)
     
-    def buildDataSchema(self, attributes, targetAtts, trainValTestSplit=[.8,.1,.1], zMultiple = 2):
+    def buildDataSchema(self, attributes, targetAtts, trainValTestSplit=[.8,.1,.1], zMultiple = 5, trainValidTestFN = None):
         self.targetAtts=targetAtts
         self.buildMetaData()
         self.trainValTestSplit = trainValTestSplit
-        self.splitForValidation(trainValTestSplit)
+        self.trainValidTestFN = trainValidTestFN
+
+        if self.trainValidTestFN==None:
+            self.splitForValidation(trainValTestSplit)
+        else:
+            self.loadTrainValidTest()
+
         #self.newEpoch()#Reset all indices and counters
         self.attributes=attributes
         self.zMultiple = zMultiple
@@ -441,6 +447,23 @@ class dataInterpreter(object):
         #print("validation set size:" + str(len(self.validationSet))
         #print("test set size:" + str(len(self.testSet)))
         
+    def loadTrainValidTest(self):
+        #Loads the train valid test split information from a file to coordinate these splits between multiple models
+
+        with open(self.trainValidTestFN + "_trainSet.p", "rb") as f:
+            self.trainingSet = pickle.load(f)
+        with open(self.trainValidTestFN + "_valSet.p", "rb") as f:
+            self.validationSet = pickle.load(f)
+        with open(self.trainValidTestFN + "_testSet.p", "rb") as f:
+            self.testSet = pickle.load(f)
+
+        trainingSetSize = len(self.trainingSet)
+        validationSetSize = len(self.validationSet)
+        testSetSize = len(self.testSet)
+
+        self.numDataPoints = trainingSetSize + validationSetSize + testSetSize
+        self.dataPointList = np.concatenate((self.trainingSet, self.validationSet, self.testSet))
+
     def loadExcisedList(self, excisedFN):
         with open(excisedFN, "rb") as f:
             exc_l = pickle.load(f)

@@ -32,7 +32,7 @@ class keras_endoLSTM(object):
         if newModel:
             #self.model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
             self.model_save_location = "./model_states/"
-            self.model_file_name = "keras_fixedZscores_patience3_noUser_noSport"
+            #self.model_file_name = "keras_fixedZscores_patience3_noUser_noSport"
             self.patience = 3
             self.max_epochs = 50
 
@@ -40,6 +40,8 @@ class keras_endoLSTM(object):
 
             self.data_path = "../multimodalDBM/endomondoHR_proper_newmeta.json"
             self.summaries_dir = "logs/keras/"
+
+            self.trainValTestFN = "logs/keras/keras__noSport_hrTarget" #The filename root from which to load the train valid test split
 
             #self.endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
             self.trainValTestSplit = [0.8, 0.1, 0.1]
@@ -55,7 +57,7 @@ class keras_endoLSTM(object):
             parse_args_keras(cmdArgs, self)
 
             self.endo_reader = dataInterpreter(fn=self.data_path, scaleVals=self.scale_toggle, trimmed_workout_length=self.trimmed_workout_len, scaleTargets=self.scaleTargets)
-            self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, self.trainValTestSplit, self.zMultiple)
+            self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, trainValTestSplit = self.trainValTestSplit, zMultiple = self.zMultiple, trainValidTestFN = self.trainValTestFN)
             self.input_dim = self.endo_reader.getInputDim(self.targetAtts)
             self.target_dim = self.endo_reader.getTargetDim(self.targetAtts)
 

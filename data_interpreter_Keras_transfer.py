@@ -7,6 +7,14 @@ import jsonReader
 from haversine import haversine
 from math import floor
 
+"""
+This file is desigend to be the same as the regular data interpreter, except that it allows for seperate specifications for the shape of the data 
+and the actual data variables that will be fed into the model. The spaces for variables that are not fed into the model are padded with zeros instead. This allows
+us to build models that inheret the paramaters from other models with different data shapes and therefore to be able to speed up learning via transfer.
+
+Both files should eventually be merged into one to avoid code reuse.
+"""
+
 #Need to:
         #0. Scan the file when producing metadata and create a list of data point indices
         #1. Load the list of data point indices
@@ -39,15 +47,21 @@ class dataInterpreter(object):
         #if attributes is not None:
         #    self.buildDataSchema(attributes)
     
-    def buildDataSchema(self, attributes, targetAtts, originalAttributes, trainValTestSplit=[.8,.1,.1], zMultiple = 2):
+    def buildDataSchema(self, attributes, targetAtts, originalAttributes, trainValTestSplit=[.8,.1,.1], zMultiple = 5, trainValidTestFN = None):
+
         self.originalAttributes = originalAttributes
         self.originalInputAtts = [x for x in self.originalAttributes if x not in targetAtts]
 
         self.targetAtts=targetAtts
         self.buildMetaData()
         self.trainValTestSplit = trainValTestSplit
-        self.splitForValidation(trainValTestSplit)
-        #self.newEpoch()#Reset all indices and counters
+    self.trainValidTestFN = trainValidTestFN
+
+        if self.trainValidTestFN==None:
+            self.splitForValidation(trainValTestSplit)
+        else:
+            self.loadTrainValidTest()        #self.newEpoch()#Reset all indices and counters
+
         self.attributes=attributes
         self.zMultiple = zMultiple
         dataDimSum=0
@@ -451,6 +465,24 @@ class dataInterpreter(object):
         #print("training set size:" + str(len(self.trainingSet))
         #print("validation set size:" + str(len(self.validationSet))
         #print("test set size:" + str(len(self.testSet)))
+
+
+    def loadTrainValidTest(self):
+        #Loads the train valid test split information from a file to coordinate these splits between multiple models
+
+        with open(self.trainValidTestFN + "_trainSet.p", "rb") as f:
+            self.trainingSet = pickle.load(f)
+        with open(self.trainValidTestFN + "_valSet.p", "rb") as f:
+            self.validationSet = pickle.load(f)
+        with open(self.trainValidTestFN + "_testSet.p", "rb") as f:
+            self.testSet = pickle.load(f)
+
+        trainingSetSize = len(self.trainingSet)
+        validationSetSize = len(self.validationSet)
+        testSetSize = len(self.testSet)
+
+        self.numDataPoints = trainingSetSize + validationSetSize + testSetSize
+        self.dataPointList = np.concatenate((self.trainingSet, self.validationSet, self.testSet))
         
     def loadExcisedList(self, excisedFN):
         with open(excisedFN, "rb") as f:

@@ -29,7 +29,6 @@ from parse_args_keras import parse_args_keras
 class keras_endoLSTM(object):
     def __init__(self, cmdArgs):
 
-
         self.old_model_file_name = "keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore"
 
         #self.model_save_location = "/home/lmuhlste/endomondo_inference/model_states/"
@@ -43,10 +42,9 @@ class keras_endoLSTM(object):
         self.data_path = "../multimodalDBM/endomondoHR_proper_newmeta.json"
         self.summaries_dir = "logs/keras/"
 
-        #endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
-        #self.endoFeatures = ["heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed"]
+        #self.endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
 
-        self.originalAttributes = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
+        self.originalAttributes = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
 
         self.trainValTestSplit = [0.8, 0.1, 0.1]
         self.targetAtts = ["heart_rate"]
@@ -56,12 +54,12 @@ class keras_endoLSTM(object):
         self.batch_size_m = 64
 
         self.scale_toggle = True #Should the data values be scaled to their z-scores with the z-multiple?
-        self.scaleTargets = False
+        self.scaleTargets = True
 
         parse_args_keras(cmdArgs, self)
 
         self.endo_reader = dataInterpreter(fn=self.data_path, scaleVals=self.scale_toggle, trimmed_workout_length=self.trimmed_workout_len, scaleTargets=self.scaleTargets)
-        self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, self.originalAttributes, self.trainValTestSplit, self.zMultiple)
+        self.endo_reader.buildDataSchema(self.endoFeatures, self.targetAtts, self.originalAttributes, trainValTestSplit = self.trainValTestSplit, zMultiple = self.zMultiple, trainValidTestFN = self.trainValTestFN)
         self.input_dim = self.endo_reader.getInputDim(self.targetAtts)
         self.target_dim = self.endo_reader.getTargetDim(self.targetAtts)
 
