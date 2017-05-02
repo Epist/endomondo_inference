@@ -39,68 +39,132 @@ from parse_args_keras import parse_args_keras
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
 import random
+from fastdtw import fastdtw
+from scipy.interpolate import interp1d
+
 
 #Params
 #target_workout_index = 3 #1234 #Choose a workout to use as the target heart rate!!!
 number_to_search = 100
 number_of_target_tests = 100
 #target_variable = "heart_rate" #Can only use a single target variable
-distance_metric = "MAE"
+distance_metric = "DTW"
 #modelFN = "model_states/keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore" # "model_states/keras__all08_06PM_March_19_2017_bestValidScore"
 #modelFN = "model_states/keras__all_speedTarget_noTarScaling06_26PM_March_21_2017_bestValidScore"
 #modelFN = "model_states/keras__all08_06PM_March_19_2017_bestValidScore"
-modelFN = "model_states/keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore"
+#modelFN = "model_states/keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore"
+modelFN = "model_states/keras__noGender_noUser_noSport_hrTarget11_40AM_April_18_2017_bestValidScore" #keras__all_hrTarget02_58PM_April_11_2017_bestValidScore
+#keras__all_speedTarget03_15PM_April_11_2017_bestValidScore
 
 data_path = "../multimodalDBM/endomondoHR_proper_newmeta_copy.json" # "../multimodalDBM/endomondoHR_proper_copy.json"
-endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
+trainValTestFN = "logs/keras/keras__noSport_hrTarget" #The filename root from which to load the train valid test split
+
+endoFeatures = ["heart_rate", "new_workout", "altitude", "distance", "derived_speed", "time_elapsed"] #["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
 targetAtts = ["heart_rate"]
+trainValTestSplit = [0.8, 0.1, 0.1]
 trimmed_workout_len = 450
 scale_toggle = True
-scaleTargets= False #"scaleVals" #False
+scaleTargets= True #"scaleVals" #False
 zMultiple = 5
+samples = 5000 #For resampling 
+resample_toggle = False
+
 endoReader = dataInterpreter(fn=data_path, scaleVals=scale_toggle, trimmed_workout_length=trimmed_workout_len, scaleTargets=scaleTargets)
-endoReader.buildDataSchema(endoFeatures, targetAtts, zMultiple = zMultiple)
+#endoReader.buildDataSchema(endoFeatures, targetAtts, zMultiple = zMultiple)
+endoReader.buildDataSchema(endoFeatures, targetAtts, trainValTestSplit = trainValTestSplit, zMultiple = zMultiple, trainValidTestFN = trainValTestFN)
+
 
 #if target_workout_index not in endoReader.dataPointList:
 #	raise(exception("The target workout is in the excised list!!! Choose another..."))
 
+#dp_key = endoReader.decoderKey()
+#elapsed_time_index = dp_key.index("time_elapsed")
 
 class workout(object):
 	def __init__(self, workoutIndex):
 		self.workoutIndex = workoutIndex
 		self.inputSeq = None
 		self.targetSeq = None
-		self.rawInputSeq = None
-		self.rawTargetSeq = None
+		#self.rawInputSeq = None
+		#self.rawTargetSeq = None
+		self.timeElapsed = None
 		self.loadData()
 		self.predictedTrace = None
 		self.evalScore = None
 
 	def loadData(self):
 		#Load the inputs and targets from the json file and scale them appropriately
-		(xr, yr) = endoReader.getDpByIndex(self.workoutIndex, scaling=False)
-		self.rawInputSeq = xr
-		self.rawTargetSeq = yr
-
-		(x, y) = endoReader.getDpByIndex(self.workoutIndex, scaling=True)
+		#Target scaling toggling is taken care of by the object paramaters for endoreader, not the function call to getDpByIndex()
+		(x, y) = endoReader.getDpByIndex(self.workoutIndex, scaling=scale_toggle)
 		self.inputSeq = x
-		self.targetSeq = y
- 
+		self.targetSeq = np.array(y).astype(np.float)
+
+		#dp_inputs = endoReader.dataDecoder(self.inputSeq)
+
+		self.timeElapsed = np.array(getInputByName(self.inputSeq, "time_elapsed", endoReader))
+
+def getInputByName(input_data, varName, endoReader):
+    #Provides access to decoded input variable sequences by attribute name
+    dataKey = endoReader.decoderKey()
+    dataIndex = dataKey.index(varName)
+    batch_size = np.shape(input_data)[0]
+    varData = []
+    for i in range(batch_size):
+        decodedData = np.array(endoReader.dataDecoder(input_data[i]))
+        varData.extend(decodedData[:, dataIndex])
+    return varData
+		 
 
 def predict_model(model, inputSeq):
 	return model.predict_on_batch(inputSeq)
 
-def eval_model(predictedTrace, targetSeq, distance_metric):
+def eval_model(predictedTrace, targetSeq, distance_metric, samples = None, prediction_timesteps = None, target_timesteps = None):
 	#return model.test_on_batch(targetSeq)
 	if distance_metric == "MSE":
 		return mean_squared_error(predictedTrace, targetSeq)
 	if distance_metric == "MAE":
 		return mean_absolute_error(predictedTrace, targetSeq)
+	if distance_metric == "DTW":
+		#Resampling and dynamic time warping
+		if resample_toggle:
+			predictedTrace= resample(predictedTrace, prediction_timesteps, samples)
+			targetSeq = resample(targetSeq, target_timesteps, samples)
+
+		#distance, path = fastdtw(predictedTrace.astype(np.float), targetSeq.astype(np.float))
+		distance, path = fastdtw(predictedTrace, targetSeq)
+		return distance
+
+
+def resample(values, timestamps, samples, interp_kind = 'linear'):
+    #interpolate and resample sequence with constant intervals
+    #print("resampling")
+    f = interp1d(timestamps, values, kind=interp_kind)
+
+    min_time = timestamps[0]
+    max_time = timestamps[len(timestamps)-1]
+
+    times = [(max_time-min_time)*(x/samples)+min_time for x in range(samples)]
+    resampled = [f(x) for x in times]
+    
+    return resampled
+
+def rescaleZscoredData(endo_reader, sequence, att, zMultiple):
+    #Removes the z score scaling. Does this by getting the varmeans and stds from the endo_reader, 
+    #and then performing arithmetic operations on the data sequence
+        
+    variableMeans = endo_reader.variableMeans
+    variableStds = endo_reader.variableStds
+    
+    unMult = [x/float(zMultiple) for x in sequence]
+    diff = [x*float(variableStds[att]) for x in unMult]
+    raw = [x+float(variableMeans[att]) for x in diff]
+    return raw
 
 #def eval_model_interp(predictedTrace, targetSeq, testTimes, targetTimes, rate):
 	#Takes in the heart rate traces from the prediction and the target as well as the elapsed time sequences for both 
 	#and interpolates and resamples them so that they share a time axis (using the rate paramater to define the steps in the time sequence)
 	#Then it computes the distance between the two series'
+
 
 
 availableWorkouts = endoReader.dataPointList
@@ -172,7 +236,21 @@ for i in range(number_of_target_tests):
 		targetSeq = targetWorkout.targetSeq
 		predictedTrace = predict_model(model, inputSeq)
 		#Compute the similarity for each heart rate sequence (Could do this by using the target HR seq as the target seq in the model)
-		eval_score = eval_model(predictedTrace[0,:,:], targetSeq[0,:,:], distance_metric)
+
+		#Need to get the elapsed time sequence for both the target and the prediction
+		target_times = targetWorkout.timeElapsed
+		prediction_timesteps = wo.timeElapsed
+		#Make sure to grab the unscaled version. Do this using code from endreader, which should be able to get the raw sequence straight from the datapoint
+
+		#Need to rescale both the target and the prediction if they were computed using zscore-scaling
+		predictedTrace = predictedTrace[0,:,:].flatten()
+		targetSeq = targetSeq[0,:,:].flatten()
+		if scaleTargets == True:
+			#Unscale the targets
+			predictedTrace = rescaleZscoredData(endoReader, predictedTrace, targetAtts[0], zMultiple)
+			targetSeq = rescaleZscoredData(endoReader, targetSeq, targetAtts[0], zMultiple)
+
+		eval_score = eval_model(predictedTrace, targetSeq, distance_metric, samples = samples, prediction_timesteps = prediction_timesteps, target_timesteps = target_times)
 		wo.predictedTrace = predictedTrace
 		wo.evalScore = eval_score
 
@@ -188,12 +266,14 @@ for i in range(number_of_target_tests):
 	targetRank = findTargetRank(workoutList, target_workout_index)
 	target_ranks.append(targetRank)
 	print("    Target rank: " + str(targetRank) + " out of " + str(number_to_search))
+	print("    Target index: ", target_workout_index)
+	print("          The indices of the top 10 workouts are: ", [wo.workoutIndex for wo in workoutList[0:10]])
 	#print("    Target " + distance_metric + " is " + str(workoutList[targetRank-1].evalScore))
 	#print("    Best " + distance_metric + " is " + str(workoutList[0].evalScore))
 	#print("    Worst " + distance_metric + " is " + str(workoutList[number_to_search].evalScore))
 
 average_target_rank = np.mean(target_ranks)
-print("The average target rank for " + str(number_of_target_tests) + " random targets and " + str(number_to_search) + " comaprisons per target is " + str(average_target_rank))
+print("The average target rank for " + str(number_of_target_tests) + " random targets and " + str(number_to_search) + " comparisons per target is " + str(average_target_rank))
 print("The AUC is " + str(1-(average_target_rank/number_to_search)))
 
 #Save the ordered list of workouts as well as the targetWorkout and the paramaters 

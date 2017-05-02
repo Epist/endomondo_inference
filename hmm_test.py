@@ -18,11 +18,13 @@ predictions_fn = "baselines/hmm_test_multi_preds_speed"
 targetAtts=['derived_speed']
 modelRunIdentifier = datetime.datetime.now().strftime("%I_%M%p_%B_%d_%Y")
 
-trainValTestSplit=(0.9, 0, 0.1)
+trainValTestSplit=[0.8, 0.1, 0.1]
 trimmed_workout_length=450
 
+trainValTestFN = "logs/keras/keras__noSport_hrTarget" #The filename root from which to load the train valid test split
+
 endoReader=dataInterpreter(fn="../multimodalDBM/endomondoHR_proper.json", allowMissingData=True, scaleVals=False, trimmed_workout_length=trimmed_workout_length, scaleTargets=False)
-endoReader.buildDataSchema(["heart_rate", "derived_speed"], targetAtts, trainValTestSplit=trainValTestSplit)
+endoReader.buildDataSchema(["heart_rate", "derived_speed"], targetAtts, trainValTestSplit=trainValTestSplit, zMultiple = 0, trainValidTestFN = trainValTestFN)
 batch_size=1
 num_steps=endoReader.trimmed_workout_length
 train_iter = endoReader.endoIteratorSupervised(batch_size, num_steps, "train")

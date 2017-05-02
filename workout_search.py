@@ -40,22 +40,23 @@ from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
 
 #Params
-target_workout_index = 3 #1234 #Choose a workout to use as the target heart rate!!!
-number_to_search = 999
+target_workout_index = 93082 #1234 #Choose a workout to use as the target heart rate!!!
+number_to_search = 9999
 target_variable = "heart_rate" #Can only use a single target variable
 distance_metric = "MAE"
-modelFN = "model_states/keras__all08_06PM_March_19_2017_bestValidScore" #keras__noAltitude02_49AM_March_16_2017_epoch_25
+modelFN = "model_states/keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore" #keras__noAltitude02_49AM_March_16_2017_epoch_25
 
 
 
-data_path = "../multimodalDBM/endomondoHR_proper_copy.json"
+data_path = "../multimodalDBM/endomondoHR_proper_newmeta.json"
 #endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
-endoFeatures = ["sport", "heart_rate", "gender", "altitude", "time_elapsed", "distance", "new_workout", "derived_speed", "userId"]
+endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
 targetAtts = ["heart_rate"]
 trimmed_workout_len = 450
 scale_toggle = True
+scaleTargets= False #"scaleVals" #False
 zMultiple = 5
-endoReader = dataInterpreter(fn=data_path, scaleVals=scale_toggle, trimmed_workout_length=trimmed_workout_len)
+endoReader = dataInterpreter(fn=data_path, scaleVals=scale_toggle, trimmed_workout_length=trimmed_workout_len, scaleTargets=scaleTargets)
 endoReader.buildDataSchema(endoFeatures, targetAtts, zMultiple = zMultiple)
 
 if target_workout_index not in endoReader.dataPointList:
@@ -172,6 +173,9 @@ print("Target rank: " + str(targetRank) + " out of " + str(number_to_search+1))
 print("Target " + distance_metric + " is " + str(workoutList[targetRank-1].evalScore))
 print("Best " + distance_metric + " is " + str(workoutList[0].evalScore))
 print("Worst " + distance_metric + " is " + str(workoutList[number_to_search].evalScore))
+print("The AUC is " + str(1-(targetRank/number_to_search)))
+
+print("The indices of the top 10 workouts are: ", [wo.workoutIndex for wo in sortedWOList[0:10]])
 
 #Save the ordered list of workouts as well as the targetWorkout and the paramaters 
 

@@ -12,7 +12,7 @@ trimmed_workout_length=450
 batch_size=1
 num_steps=trimmed_workout_length
 trainValTestSplit=(0, 0, 1)
-predictions_fn = "heart_rate_local_mean_baseline"
+predictions_fn = "derived_speed_local_mean_baseline"
 targetVars = ["derived_speed"]
 
 modelRunIdentifier = datetime.datetime.now().strftime("%I_%M%p_%B_%d_%Y")
@@ -28,7 +28,7 @@ def compute_workout_mean_error(data_gen):
     for i, (inputs, targets) in enumerate(data_gen):
         if i%1000 == 0:
             print("Workout mean baseline computed on " + str(i) + " workouts so far")
-            workout_mean = np.mean(targets[0])
+        workout_mean = np.mean(targets[0])
         test_scores.append(np.mean(np.square(np.subtract(workout_mean, targets[0]))))
     return test_scores
 
@@ -38,6 +38,6 @@ test_scores = compute_workout_mean_error(test_gen)
 with open(predictions_fn+modelRunIdentifier+".p", "wb") as f:
     pickle.dump(test_scores, f)
     
-print("MSE using workout mean " + targetVar + " as a baseline " + str(np.mean(test_scores)))
+print("MSE using workout mean " + targetVars[0] + " as a baseline " + str(np.mean(test_scores)))
         
         

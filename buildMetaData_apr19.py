@@ -247,19 +247,12 @@ class dataInterpreter(object):
 
     
 
-    def dataIteratorSupervised(self, trainValidTest, feedType = "seq2seq"):
-        if feedType == "seq2seq":
-            targetAtts=self.targetAtts
-            #Performs the same job as the batch iterator, but with one of the attributes separated as the supervision signal
-            inputAttributes = self.inputAttributes
-            inputDataDim=self.getInputDim(targetAtts)
-            targetDataDim=self.getTargetDim(targetAtts)
-        elif feedType == "autoassociative":
-            targetAtts=[]
-            #Performs the same job as the batch iterator, but with one of the attributes separated as the supervision signal
-            inputAttributes = self.inputAttributes.extend(self.targetAtts)
-            inputDataDim=self.getInputDim([])
-            targetDataDim=self.getTargetDim([])
+    def dataIteratorSupervised(self, trainValidTest):
+        targetAtts=self.targetAtts
+        #Performs the same job as the batch iterator, but with one of the attributes separated as the supervision signal
+        inputAttributes = self.inputAttributes
+        inputDataDim=self.getInputDim(targetAtts)
+        targetDataDim=self.getTargetDim(targetAtts)
 
         if trainValidTest == 'train':
             self.trainingOrder = self.randomizeDataOrder(self.trainingSet)
@@ -412,49 +405,6 @@ class dataInterpreter(object):
                         currentTimePoint = batchGen.next()
                         inputData[j,k,:] = currentTimePoint[0]
                         targetData[j,k,:] = currentTimePoint[1]
-
-                x = inputData
-                y = targetData
-                yield (x, y)
-
-    def endoIteratorAutoAssociative(self, batch_size, num_steps, trainValidTest, initial_input):
-
-            batchGen = self.dataIteratorSupervised(trainValidTest, feedType = "autoassociative") 
-            
-            if trainValidTest=="train":
-                set_size_multiple=self.trainValTestSplit[0]
-            elif trainValidTest=="valid":
-                set_size_multiple=self.trainValTestSplit[1]
-            elif trainValidTest=="test":
-                set_size_multiple=self.trainValTestSplit[2]
-            else:
-                raise(ValueError("trainValidTest is not a valid value"))
-            
-
-            data_len = self.numDataPoints*self.trimmed_workout_length*set_size_multiple
-            batch_len = data_len / batch_size
-            epoch_size = int(floor(batch_len / num_steps))
-
-            inputDataDim = self.getInputDim(self.targetAtts)
-            targetDataDim = self.getTargetDim(self.targetAtts)
-
-            if epoch_size == 0:
-                raise ValueError("epoch_size == 0, decrease batch_size or num_steps")
-                
-
-            #nextRow=[next(batchGen) for x in range(num_steps)]#Fill the first row (with both inputs and targets)
-            #print(nextRowTargets)
-            for i in range(epoch_size):
-                inputData = np.zeros([batch_size, num_steps, inputDataDim])
-                targetData = np.zeros([batch_size, num_steps, targetDataDim])
-                last_target = initial_input
-                for j in range(batch_size):
-                    for k in range(num_steps):
-                        currentTimePoint = batchGen.next()
-                        inputData[j,k,:] = last_target
-                        targetData[j,k,:] = currentTimePoint[0]
-                        last_target = currentTimePoint[0]
-
 
                 x = inputData
                 y = targetData
@@ -830,7 +780,7 @@ class dataInterpreter(object):
     def computeMeansStandardDeviations(self, varSums, numDataPoints, attributes):
         print("Computing variable means and standard deviations")
         
-        numSequencePoints = numDataPoints*trimmed_workout_length
+        numSequencePoints = numDataPoints*self.trimmed_workout_length
         variableMeans = {}
         for key in varSums:
             variableMeans[key] = varSums[key]/numSequencePoints
@@ -925,3 +875,11 @@ class metaDataEndomondo(object):
         self.variableMeans = variableMeans
         self.variableStds = variableStds
         
+def main():
+    endoRead=dataInterpreter(fn="../multimodalDBM/endomondoHR_proper_copy.json")
+    endoRead.buildDataSchema(['altitude', 'gender', 'heart_rate', 'userId', 'derived_speed'], ['heart_rate', 'derived_speed'])
+    print("Done!!")
+
+
+if __name__ == "__main__":
+    main()
