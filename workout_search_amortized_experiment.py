@@ -41,6 +41,9 @@ from sklearn.metrics import mean_absolute_error
 import random
 from fastdtw import fastdtw
 from scipy.interpolate import interp1d
+import sklearn
+from sklearn import linear_model
+from sklearn.externals import joblib
 
 
 #Params
@@ -53,21 +56,27 @@ distance_metric = "DTW"
 #modelFN = "model_states/keras__all_speedTarget_noTarScaling06_26PM_March_21_2017_bestValidScore"
 #modelFN = "model_states/keras__all08_06PM_March_19_2017_bestValidScore"
 #modelFN = "model_states/keras__all_hrTarget_noTarScaling08_28PM_March_21_2017_bestValidScore"
-modelFN = "model_states/keras__noGender_noUser_noSport_hrTarget11_40AM_April_18_2017_bestValidScore" #keras__all_hrTarget02_58PM_April_11_2017_bestValidScore
+modelFN = "baselines/linear_baseline_speed_noTime_noDist06_32PM_May_03_2017_model0.p"
+#linear_baseline_speed_noTime_noDist06_32PM_May_03_2017_model0.p
+#linear_baseline_hr05_14PM_May_02_2017_model0.p 
+#keras__all_hrTarget02_58PM_April_11_2017_bestValidScore
+#keras__noGender_noUser_noSport_hrTarget11_40AM_April_18_2017_bestValidScore
 #keras__all_speedTarget03_15PM_April_11_2017_bestValidScore
+#keras__noGender_noUser_noSport_speedTarget01_10PM_April_17_2017_bestValidScore
 
 data_path = "../multimodalDBM/endomondoHR_proper_newmeta_copy.json" # "../multimodalDBM/endomondoHR_proper_copy.json"
 trainValTestFN = "logs/keras/keras__noSport_hrTarget" #The filename root from which to load the train valid test split
 
-endoFeatures = ["heart_rate", "new_workout", "altitude", "distance", "derived_speed", "time_elapsed"] #["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
-targetAtts = ["heart_rate"]
+endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "derived_speed"] #["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
+targetAtts = ["derived_speed"]
 trainValTestSplit = [0.8, 0.1, 0.1]
 trimmed_workout_len = 450
-scale_toggle = True
-scaleTargets= True #"scaleVals" #False
+scale_toggle = False
+scaleTargets= False #"scaleVals" #False
 zMultiple = 5
 samples = 5000 #For resampling 
 resample_toggle = False
+model_type = "linear" # "LSTM" "linear"
 
 endoReader = dataInterpreter(fn=data_path, scaleVals=scale_toggle, trimmed_workout_length=trimmed_workout_len, scaleTargets=scaleTargets)
 #endoReader.buildDataSchema(endoFeatures, targetAtts, zMultiple = zMultiple)
@@ -101,7 +110,7 @@ class workout(object):
 
 		#dp_inputs = endoReader.dataDecoder(self.inputSeq)
 
-		self.timeElapsed = np.array(getInputByName(self.inputSeq, "time_elapsed", endoReader))
+		#self.timeElapsed = np.array(getInputByName(self.inputSeq, "time_elapsed", endoReader))
 
 def getInputByName(input_data, varName, endoReader):
     #Provides access to decoded input variable sequences by attribute name
@@ -115,8 +124,16 @@ def getInputByName(input_data, varName, endoReader):
     return varData
 		 
 
-def predict_model(model, inputSeq):
-	return model.predict_on_batch(inputSeq)
+def predict_model(model, inputSeq, model_type="LSTM"):
+	if model_type == "LSTM":
+		return model.predict_on_batch(inputSeq)
+	elif model_type == "linear":
+		preds = np.zeros([1,trimmed_workout_len,1])
+		for i, timepoint in enumerate(inputSeq[0]):
+			#print(timepoint)
+			#print(i)
+			preds[0,i,0] = model.predict(timepoint)
+		return preds
 
 def eval_model(predictedTrace, targetSeq, distance_metric, samples = None, prediction_timesteps = None, target_timesteps = None):
 	#return model.test_on_batch(targetSeq)
@@ -191,24 +208,32 @@ def findTargetRank(sortedWOList, target_workout_index):
 
 #Load a trained model
 def load_and_rebuild_model(modelFN, num_steps, input_dim, target_dim):
-	oldModel = keras.models.load_model(modelFN)#Load a model that has already been trained
+	if model_type == "LSTM":
 
-	print('Build model...')
-	model = Sequential()
-	#model.add(Reshape((batch_size_m, num_steps, input_dim), batch_input_shape=(batch_size_m*num_steps, input_dim)))
-	model.add(LSTM(128, return_sequences=True, batch_input_shape=(1, num_steps, input_dim), stateful=True))
-	model.add(Dropout(0.2))
-	model.add(LSTM(128, return_sequences=True, stateful=True))
-	model.add(Dropout(0.2))
-	model.add(Dense(target_dim))
-	model.add(Activation('linear'))
+		oldModel = keras.models.load_model(modelFN)#Load a model that has already been trained
 
-	model.compile(loss='mean_squared_error', optimizer='rmsprop')
+		print('Build model...')
+		model = Sequential()
+		#model.add(Reshape((batch_size_m, num_steps, input_dim), batch_input_shape=(batch_size_m*num_steps, input_dim)))
+		model.add(LSTM(128, return_sequences=True, batch_input_shape=(1, num_steps, input_dim), stateful=True))
+		model.add(Dropout(0.2))
+		model.add(LSTM(128, return_sequences=True, stateful=True))
+		model.add(Dropout(0.2))
+		model.add(Dense(target_dim))
+		model.add(Activation('linear'))
 
-	model.set_weights(oldModel.get_weights())#Transfer the weights from the old model to the new model
-	print("Endomodel Built!")
+		model.compile(loss='mean_squared_error', optimizer='rmsprop')
 
-	return model
+		model.set_weights(oldModel.get_weights())#Transfer the weights from the old model to the new model
+		print("Endomodel Built!")
+
+		return model
+	elif model_type == "linear":
+		#with open(modelFN, "rb") as f:
+		#	models = pickle.load(models, f)
+		#	model = models[0]
+		model = joblib.load(modelFN)
+    	return model
 
 model = load_and_rebuild_model(modelFN, trimmed_workout_len, endoReader.getInputDim(targetAtts), endoReader.getTargetDim(targetAtts))
 
@@ -234,7 +259,7 @@ for i in range(number_of_target_tests):
 		#	print("Predicted " + str(j) + " workouts so far")
 		inputSeq = wo.inputSeq
 		targetSeq = targetWorkout.targetSeq
-		predictedTrace = predict_model(model, inputSeq)
+		predictedTrace = predict_model(model, inputSeq, model_type)
 		#Compute the similarity for each heart rate sequence (Could do this by using the target HR seq as the target seq in the model)
 
 		#Need to get the elapsed time sequence for both the target and the prediction
@@ -245,6 +270,7 @@ for i in range(number_of_target_tests):
 		#Need to rescale both the target and the prediction if they were computed using zscore-scaling
 		predictedTrace = predictedTrace[0,:,:].flatten()
 		targetSeq = targetSeq[0,:,:].flatten()
+		predictedTrace = predictedTrace.astype(float)
 		if scaleTargets == True:
 			#Unscale the targets
 			predictedTrace = rescaleZscoredData(endoReader, predictedTrace, targetAtts[0], zMultiple)

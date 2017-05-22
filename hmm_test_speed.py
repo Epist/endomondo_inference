@@ -12,12 +12,12 @@ import time
 import datetime
 
 
-model_fn = "baselines/hmm_test_multi_model_hr"
-predictions_fn = "baselines/hmm_test_multi_preds_hr"
+model_fn = "baselines/hmm_test_multi_model_speed"
+predictions_fn = "baselines/hmm_test_multi_preds_speed"
 
-endoFeatures = ["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"] #["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
+endoFeatures = ["heart_rate", "derived_speed"] #["heart_rate", "new_workout", "gender", "sport", "userId", "altitude", "distance", "derived_speed", "time_elapsed"]
 
-targetAtts=['heart_rate']
+targetAtts=['derived_speed']
 modelRunIdentifier = datetime.datetime.now().strftime("%I_%M%p_%B_%d_%Y")
 
 trainValTestSplit=[0.8, 0.1, 0.1]
@@ -25,6 +25,8 @@ trimmed_workout_length=450
 zMultiple = 5
 scaleVals=False
 scaleTargets=False
+
+scale_mult = 100000000
 
 trainValTestFN = "logs/keras/keras__noSport_hrTarget" #The filename root from which to load the train valid test split
 
@@ -48,7 +50,8 @@ models.append(hmm.GaussianHMM(n_components=5, covariance_type="full", n_iter=100
 #models.append(hmm.GaussianHMM(n_components=3, covariance_type="tied", n_iter=100))
 
 
-
+lengths = [trimmed_workout_length]*batch_size
+print(len(lengths))
 
 def fit_hmm_on_dataset(models, train_gen):
     with warnings.catch_warnings():
@@ -60,7 +63,10 @@ def fit_hmm_on_dataset(models, train_gen):
             if i%1000 == 0:
                 print("Trained on " + str(i) + " workouts so far")
             for model in models:
-                model.fit(targets[0])
+
+                clean_tars = [[x*scale_mult] if x>0.00001 else [0.00001*scale_mult] for x in targets[0,:,0]]
+                #print(np.min(clean_tars))
+                model.fit(clean_tars)
         
 print("Training " + str(len(models)) + " hmm models")
 fit_hmm_on_dataset(models, train_iter)
@@ -89,7 +95,8 @@ def test_hmm(models, test_gen):
                 print("Mean MSEs so far: " + str([np.mean(x) for x in workout_test_scores_by_model]))
             for i, model in enumerate(models):
                 x,z = model.sample(num_steps)
-                workout_test_scores_by_model[i].append(seqMSE(x, targets[0]))
+                unscaled_preds = [[a/scale_mult] if a>[0.00001*scale_mult] else 0. for a in x[:,0]]
+                workout_test_scores_by_model[i].append(seqMSE(unscaled_preds, targets[0]))
     return workout_test_scores_by_model
 
 print("Testing HMM") 
